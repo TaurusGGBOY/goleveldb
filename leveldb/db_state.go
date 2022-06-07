@@ -48,6 +48,7 @@ func (m *memDB) decref() {
 	}
 }
 
+// 最近的序列号？
 // Get latest sequence number.
 func (db *DB) getSeq() uint64 {
 	return atomic.LoadUint64(&db.seq)
@@ -159,11 +160,13 @@ func (db *DB) getMems() (e, f *memDB) {
 	db.memMu.RLock()
 	defer db.memMu.RUnlock()
 	if db.mem != nil {
+		// 增加引用计数
 		db.mem.incref()
 	} else if !db.isClosed() {
 		panic("nil effective mem")
 	}
 	if db.frozenMem != nil {
+		// 增加引用计数
 		db.frozenMem.incref()
 	}
 	return db.mem, db.frozenMem
@@ -231,6 +234,7 @@ func (db *DB) isClosed() bool {
 }
 
 // Check read ok status.
+// 不是closed都是ok
 func (db *DB) ok() error {
 	if db.isClosed() {
 		return ErrClosed

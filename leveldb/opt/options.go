@@ -681,6 +681,7 @@ type WriteOptions struct {
 	// NoWriteMerge allows disabling write merge.
 	//
 	// The default is false.
+	// 没有写合并
 	NoWriteMerge bool
 
 	// Sync is whether to sync underlying writes from the OS buffer cache
@@ -695,6 +696,7 @@ type WriteOptions struct {
 	// system call. Sync being true means write followed by fsync.
 	//
 	// The default value is false.
+	// 默认是落盘是异步的
 	Sync bool
 }
 

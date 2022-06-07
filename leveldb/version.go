@@ -72,6 +72,7 @@ func (v *version) releaseNB() {
 		panic("negative version ref")
 	}
 	select {
+	// TODO 这个东西……会阻塞吗
 	case v.s.relCh <- &vTask{vid: v.id, files: v.levels, created: time.Now()}:
 		// We can use v.levels directly here since it is immutable.
 	case <-v.s.closeC:

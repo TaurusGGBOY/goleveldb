@@ -26,22 +26,32 @@ type snapshotElement struct {
 
 // Acquires a snapshot, based on latest sequence.
 func (db *DB) acquireSnapshot() *snapshotElement {
+	// TODO 快照的时候加锁 这个效率如何
 	db.snapsMu.Lock()
 	defer db.snapsMu.Unlock()
 
+	// TODO 这个序列号是什么序列号
 	seq := db.getSeq()
 
+	// TODO 这还是个循环链表？
 	if e := db.snapsList.Back(); e != nil {
 		se := e.Value.(*snapshotElement)
+		// 引用计数
 		if se.seq == seq {
 			se.ref++
 			return se
+			// TODO 什么时候会出现最后一个结点的序号不是最后一个号的情况
 		} else if seq < se.seq {
 			panic("leveldb: sequence number is not increasing")
 		}
 	}
+	// 引用计数
 	se := &snapshotElement{seq: seq, ref: 1}
+
+	// 懒初始化 把se插入到snapsList的尾部 并返回这个元素
+	// TODO 懒初始化是不是有人懒删除
 	se.e = db.snapsList.PushBack(se)
+	// 所以快照就是一个序列号，一个引用计数，一个链表元素
 	return se
 }
 
@@ -50,7 +60,9 @@ func (db *DB) releaseSnapshot(se *snapshotElement) {
 	db.snapsMu.Lock()
 	defer db.snapsMu.Unlock()
 
+	// 引用计数--
 	se.ref--
+	// 如果没有引用了就删除链表中的这个元素
 	if se.ref == 0 {
 		db.snapsList.Remove(se.e)
 		se.e = nil

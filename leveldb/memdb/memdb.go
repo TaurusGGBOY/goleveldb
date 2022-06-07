@@ -170,6 +170,7 @@ func (i *dbIter) Release() {
 	}
 }
 
+// 偏移量+key+value+height+next
 const (
 	nKV = iota
 	nKey
@@ -191,6 +192,7 @@ type DB struct {
 	// [2]         : Value length
 	// [3]         : Height
 	// [3..height] : Next nodes
+	// TODO 接下来的结点？们？
 	nodeData  []int
 	prevNode  [tMaxHeight]int
 	maxHeight int
@@ -208,14 +210,18 @@ func (p *DB) randHeight() (h int) {
 }
 
 // Must hold RW-lock if prev == true, as it use shared prevNode slice.
+// TODO 需要后面看看是怎么存的 看起来还是二叉树存放 但是很奇怪
 func (p *DB) findGE(key []byte, prev bool) (int, bool) {
 	node := 0
 	h := p.maxHeight - 1
 	for {
+		// nNext应该是NextNodes吧 然后h是最多到哪里 里面应该是顺序排放的
 		next := p.nodeData[node+nNext+h]
 		cmp := 1
 		if next != 0 {
 			o := p.nodeData[next]
+			// 得到的是next的偏移量？偏移量+nkey就得到key的位置
+			// TODO 这没看懂 在比的是怎么取出来的
 			cmp = p.cmp.Compare(p.kvData[o:o+p.nodeData[next+nKey]], key)
 		}
 		if cmp < 0 {
@@ -372,7 +378,10 @@ func (p *DB) Get(key []byte) (value []byte, err error) {
 // The caller should not modify the contents of the returned slice, but
 // it is safe to modify the contents of the argument after Find returns.
 func (p *DB) Find(key []byte) (rkey, value []byte, err error) {
+	// 加锁 这个效率……
+	// 哦 读锁
 	p.mu.RLock()
+	// great equal的意思？
 	if node, _ := p.findGE(key, false); node != 0 {
 		n := p.nodeData[node]
 		m := n + p.nodeData[node+nKey]

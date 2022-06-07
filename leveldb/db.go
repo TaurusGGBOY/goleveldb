@@ -740,13 +740,16 @@ func (db *DB) recoverJournalRO() error {
 }
 
 func memGet(mdb *memdb.DB, ikey internalKey, icmp *iComparer) (ok bool, mv []byte, err error) {
+	// 先找key
 	mk, mv, err := mdb.Find(ikey)
 	if err == nil {
+		// 找到了之后先解析出key 以及类型
 		ukey, _, kt, kerr := parseInternalKey(mk)
 		if kerr != nil {
 			// Shouldn't have had happen.
 			panic(kerr)
 		}
+		// 还有可能不一样？迷
 		if icmp.uCompare(ukey, ikey.ukey()) == 0 {
 			if kt == keyTypeDel {
 				return true, nil, ErrNotFound
@@ -761,19 +764,24 @@ func memGet(mdb *memdb.DB, ikey internalKey, icmp *iComparer) (ok bool, mv []byt
 }
 
 func (db *DB) get(auxm *memdb.DB, auxt tFiles, key []byte, seq uint64, ro *opt.ReadOptions) (value []byte, err error) {
+	// ???一开始不穿buf进去 玩我是吧
 	ikey := makeInternalKey(nil, key, seq, keyTypeSeek)
 
+	// 如果知道在哪 就先从memtable 里面拿
 	if auxm != nil {
 		if ok, mv, me := memGet(auxm, ikey, db.s.icmp); ok {
 			return append([]byte{}, mv...), me
 		}
 	}
 
+	// 如果不知道在哪个就全拿出来 遍历……
 	em, fm := db.getMems()
+	// TODO 这个用法看一下
 	for _, m := range [...]*memDB{em, fm} {
 		if m == nil {
 			continue
 		}
+		// TODO 为何每次都要decreft 因为才increase了一次
 		defer m.decref()
 
 		if ok, mv, me := memGet(m.DB, ikey, db.s.icmp); ok {
@@ -781,7 +789,9 @@ func (db *DB) get(auxm *memdb.DB, auxt tFiles, key []byte, seq uint64, ro *opt.R
 		}
 	}
 
+	// memtable找不到了……
 	v := db.s.version()
+	// TODO 2022.06.07
 	value, cSched, err := v.get(auxt, ikey, ro, false)
 	v.release()
 	if cSched {
@@ -846,6 +856,7 @@ func (db *DB) Get(key []byte, ro *opt.ReadOptions) (value []byte, err error) {
 		return
 	}
 
+	// 快照读？
 	se := db.acquireSnapshot()
 	defer db.releaseSnapshot(se)
 	return db.get(nil, nil, key, se.seq, ro)

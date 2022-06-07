@@ -322,40 +322,52 @@ func (db *DB) putRec(kt keyType, key, value []byte, wo *opt.WriteOptions) error 
 		return err
 	}
 
+	// TODO db.session.cacheOptions是什么意思
 	merge := !wo.GetNoWriteMerge() && !db.s.o.GetNoWriteMerge()
 	sync := wo.GetSync() && !db.s.o.GetNoSync()
 
 	// Acquire write lock.
+	// 如果需要merge 先merge
 	if merge {
 		select {
+		// 情况1 给writeMergeC发送merge消息
 		case db.writeMergeC <- writeMerge{sync: sync, keyType: kt, key: key, value: value}:
+			// 如果merge完事儿了 就返回
 			if <-db.writeMergedC {
 				// Write is merged.
 				return <-db.writeAckC
 			}
 			// Write is not merged, the write lock is handed to us. Continue.
+			// 情况2 给写锁发送空消息 如果拿到了
 		case db.writeLockC <- struct{}{}:
 			// Write lock acquired.
+			// 情况3 接受压缩失败的消息
 		case err := <-db.compPerErrC:
 			// Compaction error.
 			return err
+			// 情况4 收到通道关闭消息
 		case <-db.closeC:
 			// Closed
 			return ErrClosed
 		}
 	} else {
+		// 如果不需要merge
 		select {
+		// 情况1 拿写锁
 		case db.writeLockC <- struct{}{}:
 			// Write lock acquired.
+			// 情况2 接受压缩失败的消息
 		case err := <-db.compPerErrC:
 			// Compaction error.
 			return err
+			// 情况3 收到通道关闭消息
 		case <-db.closeC:
 			// Closed
 			return ErrClosed
 		}
 	}
-
+	// TODO 为什么一定要拿写锁
+	// TODO 2022.05.31
 	batch := db.batchPool.Get().(*Batch)
 	batch.Reset()
 	batch.appendRec(kt, key, value)

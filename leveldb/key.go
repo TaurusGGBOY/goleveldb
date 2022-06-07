@@ -28,6 +28,7 @@ func newErrInternalKeyCorrupted(ikey []byte, reason string) error {
 	return errors.NewErrCorrupted(storage.FileDesc{}, &ErrInternalKeyCorrupted{append([]byte{}, ikey...), reason})
 }
 
+// 就是无符号整数
 type keyType uint
 
 func (kt keyType) String() string {
@@ -47,6 +48,7 @@ const (
 	keyTypeVal = keyType(1)
 )
 
+// 低8位是序列号 高位是值
 // keyTypeSeek defines the keyType that should be passed when constructing an
 // internal key for seeking to a particular sequence number (since we
 // sort sequence numbers in decreasing order and the value type is
@@ -58,8 +60,10 @@ const (
 	// Maximum value possible for sequence number; the 8-bits are
 	// used by value type, so its can packed together in single
 	// 64-bit integer.
+	// 本来是64位存的 但是有8位用来存值类型（顶……这么冗余吗）
 	keyMaxSeq = (uint64(1) << 56) - 1
 	// Maximum value possible for packed sequence number and type.
+	// 为什么不直接是1e8就行呢
 	keyMaxNum = (keyMaxSeq << 8) | uint64(keyTypeSeek)
 )
 
@@ -75,21 +79,29 @@ type internalKey []byte
 func makeInternalKey(dst, ukey []byte, seq uint64, kt keyType) internalKey {
 	if seq > keyMaxSeq {
 		panic("leveldb: invalid sequence number")
+		// 细节啊  uint的话比0小的不存在 0又占位了 所以就只排除比自己大的就行
 	} else if kt > keyTypeVal {
 		panic("leveldb: invalid type")
 	}
 
+	// 如果不够就重开……顶
 	dst = ensureBuffer(dst, len(ukey)+8)
+	// 把key考到dst
 	copy(dst, ukey)
+	// 把序号放进去 左边序号 右边类型
 	binary.LittleEndian.PutUint64(dst[len(ukey):], (seq<<8)|uint64(kt))
+	// 这些构造函数咋回事？不是构造函数 是强制类型转换
 	return internalKey(dst)
 }
 
 func parseInternalKey(ik []byte) (ukey []byte, seq uint64, kt keyType, err error) {
+	// type都不对了
 	if len(ik) < 8 {
 		return nil, 0, 0, newErrInternalKeyCorrupted(ik, "invalid length")
 	}
+	// TODO 右边的？迷 如果len是64那不就是[56:64]？感觉不对8
 	num := binary.LittleEndian.Uint64(ik[len(ik)-8:])
+	// 右移8位就是序列号 后8位和0000000111111111与就是后8位
 	seq, kt = uint64(num>>8), keyType(num&0xff)
 	if kt > keyTypeVal {
 		return nil, 0, 0, newErrInternalKeyCorrupted(ik, "invalid type")
