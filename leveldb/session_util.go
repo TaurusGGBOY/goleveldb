@@ -260,6 +260,7 @@ func (s *session) version() *version {
 func (s *session) tLen(level int) int {
 	s.vmu.Lock()
 	defer s.vmu.Unlock()
+	// 当前版本的层的File数量
 	return s.stVersion.tLen(level)
 }
 

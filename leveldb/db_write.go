@@ -63,34 +63,47 @@ retry:
 	return
 }
 
+// 刷memtable到第0层
 func (db *DB) flush(n int) (mdb *memDB, mdbFree int, err error) {
 	delayed := false
+	// 默认8个文件就要慢下来
 	slowdownTrigger := db.s.o.GetWriteL0SlowdownTrigger()
+	// 默认12个文件就要暂停
 	pauseTrigger := db.s.o.GetWriteL0PauseTrigger()
+	// 刷盘操作
 	flush := func() (retry bool) {
+		// 获得memtable
 		mdb = db.getEffectiveMem()
 		if mdb == nil {
 			err = ErrClosed
 			return false
 		}
 		defer func() {
+			// 如果要重试就把memtable放回到池子里
 			if retry {
 				mdb.decref()
 				mdb = nil
 			}
 		}()
+		// 第0层的File数量
 		tLen := db.s.tLen(0)
+		// memtable的空位数量
 		mdbFree = mdb.Free()
 		switch {
 		case tLen >= slowdownTrigger && !delayed:
 			delayed = true
+			// 等一毫秒
 			time.Sleep(time.Millisecond)
+			// TODO db空闲的字节数>=n 就不用重试 是刷到db吗？
 		case mdbFree >= n:
 			return false
+			// 如果到了暂停的时候
 		case tLen >= pauseTrigger:
 			delayed = true
 			// Set the write paused flag explicitly.
+			// 这个相当于加锁了
 			atomic.StoreInt32(&db.inWritePaused, 1)
+			// 这个地方会阻塞
 			err = db.compTriggerWait(db.tcompCmdC)
 			// Unset the write paused flag.
 			atomic.StoreInt32(&db.inWritePaused, 0)
@@ -99,10 +112,13 @@ func (db *DB) flush(n int) (mdb *memDB, mdbFree int, err error) {
 			}
 		default:
 			// Allow memdb to grow if it has no entry.
+			// 如果长度为0 那么所有的都是空闲
 			if mdb.Len() == 0 {
 				mdbFree = n
 			} else {
+				// 否则要引用计数减一
 				mdb.decref()
+				// 压缩创建新的
 				mdb, err = db.rotateMem(n, false)
 				if err == nil {
 					mdbFree = mdb.Free()
@@ -115,13 +131,18 @@ func (db *DB) flush(n int) (mdb *memDB, mdbFree int, err error) {
 		return true
 	}
 	start := time.Now()
+	// 死循环刷盘
 	for flush() {
 	}
+	// 统计写延迟时间和次数
 	if delayed {
 		db.writeDelay += time.Since(start)
 		db.writeDelayN++
+		// 如果没delay但是写延迟次数大于1 写log然后清零
 	} else if db.writeDelayN > 0 {
 		db.logf("db@write was delayed N·%d T·%v", db.writeDelayN, db.writeDelay)
+		// TODO 实在没看懂这在干嘛
+		// TODO 2022.06.13
 		atomic.AddInt32(&db.cWriteDelayN, int32(db.writeDelayN))
 		atomic.AddInt64(&db.cWriteDelay, int64(db.writeDelay))
 		db.writeDelay = 0
@@ -331,8 +352,10 @@ func (db *DB) putRec(kt keyType, key, value []byte, wo *opt.WriteOptions) error 
 	if merge {
 		select {
 		// 情况1 给writeMergeC发送merge消息
+		// TODO 不是很懂 这种情况不是应该马上就进入下一行了吗，其他的会执行？
 		case db.writeMergeC <- writeMerge{sync: sync, keyType: kt, key: key, value: value}:
 			// 如果merge完事儿了 就返回
+			// TODO 这里为什么不合并成一个就行？
 			if <-db.writeMergedC {
 				// Write is merged.
 				return <-db.writeAckC
@@ -354,6 +377,9 @@ func (db *DB) putRec(kt keyType, key, value []byte, wo *opt.WriteOptions) error 
 		// 如果不需要merge
 		select {
 		// 情况1 拿写锁
+		// 这是一个大小为1的channel
+		// 妙啊 channel同一时刻只能有一个没有消费的 那这样就是把channel当做锁在用了
+		// 要么是得到锁 要么是收到压缩失败消息 要么是收到关闭消息
 		case db.writeLockC <- struct{}{}:
 			// Write lock acquired.
 			// 情况2 接受压缩失败的消息
@@ -367,9 +393,11 @@ func (db *DB) putRec(kt keyType, key, value []byte, wo *opt.WriteOptions) error 
 		}
 	}
 	// TODO 为什么一定要拿写锁
-	// TODO 2022.05.31
+	// 从池子里拿batch
 	batch := db.batchPool.Get().(*Batch)
+	// reset batch
 	batch.Reset()
+	// TODO 把记录加进batch（每个都这样如何batch？）
 	batch.appendRec(kt, key, value)
 	return db.writeLocked(batch, batch, merge, sync)
 }

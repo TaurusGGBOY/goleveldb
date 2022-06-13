@@ -34,11 +34,13 @@ func (m *memDB) incref() {
 	atomic.AddInt32(&m.ref, 1)
 }
 
+// 引用计数减一并且如果是0的时候 如果是4M字节大小的块可以放回池子
 func (m *memDB) decref() {
 	if ref := atomic.AddInt32(&m.ref, -1); ref == 0 {
 		// Only put back memdb with std capacity.
 		if m.Capacity() == m.db.s.o.GetWriteBuffer() {
 			m.Reset()
+			// TODO mempool是什么
 			m.db.mpoolPut(m.DB)
 		}
 		m.db = nil

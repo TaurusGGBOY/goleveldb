@@ -764,7 +764,7 @@ func memGet(mdb *memdb.DB, ikey internalKey, icmp *iComparer) (ok bool, mv []byt
 }
 
 func (db *DB) get(auxm *memdb.DB, auxt tFiles, key []byte, seq uint64, ro *opt.ReadOptions) (value []byte, err error) {
-	// ???一开始不穿buf进去 玩我是吧
+	// ???一开始不传buf进去 玩我是吧
 	ikey := makeInternalKey(nil, key, seq, keyTypeSeek)
 
 	// 如果知道在哪 就先从memtable 里面拿
@@ -791,7 +791,7 @@ func (db *DB) get(auxm *memdb.DB, auxt tFiles, key []byte, seq uint64, ro *opt.R
 
 	// memtable找不到了……
 	v := db.s.version()
-	// TODO 2022.06.07
+	// 传文件 key 读选项
 	value, cSched, err := v.get(auxt, ikey, ro, false)
 	v.release()
 	if cSched {

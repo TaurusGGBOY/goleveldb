@@ -17,12 +17,16 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
+// 一层的文件的集合
 type tSet struct {
+	// 层号
 	level int
+	// 这一层的文件
 	table *tFile
 }
 
 type version struct {
+	// 版本号是单调递增的
 	id int64 // unique monotonous increasing version id
 	s  *session
 
@@ -88,24 +92,30 @@ func (v *version) release() {
 	v.s.vmu.Unlock()
 }
 
+// f和l函数到底是什么
 func (v *version) walkOverlapping(aux tFiles, ikey internalKey, f func(level int, t *tFile) bool, lf func(level int) bool) {
 	ukey := ikey.ukey()
 
 	// Aux level.
 	if aux != nil {
+		// t是这层的tFile链表
 		for _, t := range aux {
+			// 如果ukey在这个范围
 			if t.overlaps(v.s.icmp, ukey, ukey) {
+				// 执行f
 				if !f(-1, t) {
 					return
 				}
 			}
 		}
 
+		// TODO 否则ukey不在所有文件，执行lf
 		if lf != nil && !lf(-1) {
 			return
 		}
 	}
 
+	// TODO 为什么上面overlaps都执行了 还要执行下面的遍历？
 	// Walk tables level-by-level.
 	for level, tables := range v.levels {
 		if len(tables) == 0 {
@@ -115,6 +125,7 @@ func (v *version) walkOverlapping(aux tFiles, ikey internalKey, f func(level int
 		if level == 0 {
 			// Level-0 files may overlap each other. Find all files that
 			// overlap ukey.
+			// 第0层遍历所有的表
 			for _, t := range tables {
 				if t.overlaps(v.s.icmp, ukey, ukey) {
 					if !f(level, t) {
@@ -123,6 +134,8 @@ func (v *version) walkOverlapping(aux tFiles, ikey internalKey, f func(level int
 				}
 			}
 		} else {
+			// 否则是可以二分搜索所有的table的
+			// TODO 层和层之间的key有关系吗？我记得没有啊……
 			if i := tables.searchMax(v.s.icmp, ikey); i < len(tables) {
 				t := tables[i]
 				if v.s.icmp.uCompare(ukey, t.imin.ukey()) >= 0 {
@@ -144,14 +157,18 @@ func (v *version) get(aux tFiles, ikey internalKey, ro *opt.ReadOptions, noValue
 		return nil, false, ErrClosed
 	}
 
+	// TODO 到底是大端还是小端 这个是获取真实key吗？
 	ukey := ikey.ukey()
+
 	sampleSeeks := !v.s.o.GetDisableSeeksCompaction()
 
 	var (
+		// TODO 这个是LSM树？
 		tset  *tSet
 		tseek bool
 
 		// Level-0.
+		// TODO 第0层是直接存的从memtable拷贝过来的字节？
 		zfound bool
 		zseq   uint64
 		zkt    keyType
@@ -162,7 +179,9 @@ func (v *version) get(aux tFiles, ikey internalKey, ro *opt.ReadOptions, noValue
 
 	// Since entries never hop across level, finding key/value
 	// in smaller level make later levels irrelevant.
+	// 这是函数f
 	v.walkOverlapping(aux, ikey, func(level int, t *tFile) bool {
+		// TODO level -1代表什么
 		if sampleSeeks && level >= 0 && !tseek {
 			if tset == nil {
 				tset = &tSet{level, t}
@@ -171,10 +190,12 @@ func (v *version) get(aux tFiles, ikey internalKey, ro *opt.ReadOptions, noValue
 			}
 		}
 
+		// 这个批量定义有点意思
 		var (
 			fikey, fval []byte
 			ferr        error
 		)
+		// 不需要找value就findkey就行 两个函数差不多 就是返回值的问题
 		if noValue {
 			fikey, ferr = v.s.tops.findKey(t, ikey, ro)
 		} else {
@@ -191,16 +212,22 @@ func (v *version) get(aux tFiles, ikey internalKey, ro *opt.ReadOptions, noValue
 		}
 
 		if fukey, fseq, fkt, fkerr := parseInternalKey(fikey); fkerr == nil {
+			// 如果找到的key和要的key是一样的
 			if v.s.icmp.uCompare(ukey, fukey) == 0 {
+				// TODO 这个重叠指的是什么
 				// Level <= 0 may overlaps each-other.
 				if level <= 0 {
+					// TODO 这个在做什么
 					if fseq >= zseq {
 						zfound = true
 						zseq = fseq
 						zkt = fkt
 						zval = fval
 					}
+					// 如果找的key和要的key不一样
 				} else {
+					// 找到的key的类型
+					// TODO 没找到为什么又要返回一个值？
 					switch fkt {
 					case keyTypeVal:
 						value = fval
@@ -213,17 +240,21 @@ func (v *version) get(aux tFiles, ikey internalKey, ro *opt.ReadOptions, noValue
 				}
 			}
 		} else {
+			// 如果拆key都出问题了
 			err = fkerr
 			return false
 		}
 
 		return true
+		// 这是函数lf
 	}, func(level int) bool {
+		// 如果zffound==false 就直接返回true
 		if zfound {
 			switch zkt {
 			case keyTypeVal:
 				value = zval
 				err = nil
+				// TODO 删除类型是什么
 			case keyTypeDel:
 			default:
 				panic("leveldb: invalid internalKey type")
@@ -234,6 +265,7 @@ func (v *version) get(aux tFiles, ikey internalKey, ro *opt.ReadOptions, noValue
 		return true
 	})
 
+	// TODO seek到底是什么 如果要找 并且
 	if tseek && tset.table.consumeSeek() <= 0 {
 		tcomp = atomic.CompareAndSwapPointer(&v.cSeek, nil, unsafe.Pointer(tset))
 	}

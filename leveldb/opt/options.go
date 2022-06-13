@@ -282,6 +282,7 @@ type Options struct {
 	// small compaction which may not preferable.
 	//
 	// The default is false.
+	// TODO 到底是怎么优化的
 	DisableSeeksCompaction bool
 
 	// ErrorIfExist defines whether an error should returned if the DB already

@@ -69,6 +69,7 @@ type Batch struct {
 	index []batchIndex
 
 	// internalLen is sums of key/value pair length plus 8-bytes internal key.
+	// TODO data的长度吗？
 	internalLen int
 }
 

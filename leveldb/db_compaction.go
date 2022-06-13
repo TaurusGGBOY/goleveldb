@@ -710,6 +710,7 @@ func (db *DB) compTrigger(compC chan<- cCmd) {
 	}
 }
 
+// 通知压缩 并且等待压缩完成
 // This will trigger auto compaction and/or wait for all compaction to be done.
 func (db *DB) compTriggerWait(compC chan<- cCmd) (err error) {
 	ch := make(chan error)

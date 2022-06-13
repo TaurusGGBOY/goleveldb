@@ -21,10 +21,15 @@ import (
 )
 
 // tFile holds basic information about a table.
+// 文件
 type tFile struct {
-	fd         storage.FileDesc
-	seekLeft   int32
-	size       int64
+	// 文件描述符
+	fd storage.FileDesc
+	// TODO 左游标？
+	seekLeft int32
+	// 大小
+	size int64
+	// 最小和最大的key
 	imin, imax internalKey
 }
 
@@ -38,6 +43,7 @@ func (t *tFile) before(icmp *iComparer, ukey []byte) bool {
 	return ukey != nil && icmp.uCompare(ukey, t.imin.ukey()) < 0
 }
 
+// 通过umin和umax判断key是否是在这个File中
 // Returns true if given key range overlaps with this table key range.
 func (t *tFile) overlaps(icmp *iComparer, umin, umax []byte) bool {
 	return !t.after(icmp, umin) && !t.before(icmp, umax)
