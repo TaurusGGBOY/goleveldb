@@ -496,6 +496,7 @@ type singleWriter struct {
 	seq int
 }
 
+// 日志是这个writer
 func (x singleWriter) Write(p []byte) (int, error) {
 	w := x.w
 	if w.seq != x.seq {
@@ -507,6 +508,7 @@ func (x singleWriter) Write(p []byte) (int, error) {
 	n0 := len(p)
 	for len(p) > 0 {
 		// Write a block, if it is full.
+		// j是右边界 如果刚好等于32KB 说明是第一个块
 		if w.j == blockSize {
 			w.fillHeader(false)
 			w.writeBlock()
@@ -516,8 +518,11 @@ func (x singleWriter) Write(p []byte) (int, error) {
 			w.first = false
 		}
 		// Copy bytes into the buffer.
+		// 把p拷出来 拷到 buf右边界
 		n := copy(w.buf[w.j:], p)
+		// 右边界右移
 		w.j += n
+		// 截断p
 		p = p[n:]
 	}
 	return n0, nil

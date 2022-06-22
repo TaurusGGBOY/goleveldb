@@ -179,6 +179,7 @@ const (
 	nNext
 )
 
+// DB是放在内存中的键值对数据库
 // DB is an in-memory key/value database.
 type DB struct {
 	cmp comparer.BasicComparer
@@ -284,6 +285,7 @@ func (p *DB) Put(key []byte, value []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// TODO 找到大于等于key的结点，如果正好是
 	if node, exact := p.findGE(key, true); exact {
 		kvOffset := len(p.kvData)
 		p.kvData = append(p.kvData, key...)
@@ -295,6 +297,7 @@ func (p *DB) Put(key []byte, value []byte) error {
 		return nil
 	}
 
+	// TODO 为什么随机高度好使
 	h := p.randHeight()
 	if h > p.maxHeight {
 		for i := p.maxHeight; i < h; i++ {
@@ -303,6 +306,7 @@ func (p *DB) Put(key []byte, value []byte) error {
 		p.maxHeight = h
 	}
 
+	// TODO 2022.6.14
 	kvOffset := len(p.kvData)
 	p.kvData = append(p.kvData, key...)
 	p.kvData = append(p.kvData, value...)
@@ -433,6 +437,8 @@ func (p *DB) Size() int {
 	return p.kvSize
 }
 
+// 虽然但是slice不是自动增长的吗，那么往里面加东西了之后，cap不就会变化吗，那这里计算remind有什么意义？
+// 比如cap16 len8 负载因子0.75 到12的时候cap翻倍到32 这个时候不还是进行了扩容？
 // Free returns keys/values free buffer before need to grow.
 func (p *DB) Free() int {
 	p.mu.RLock()

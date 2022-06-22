@@ -20,12 +20,15 @@ func (db *DB) writeJournal(batches []*Batch, seq uint64, sync bool) error {
 	if err != nil {
 		return err
 	}
+	// journal是日志的意思
 	if err := writeBatchesWithHeader(wr, batches, seq); err != nil {
 		return err
 	}
+	// 写完把buf刷盘
 	if err := db.journal.Flush(); err != nil {
 		return err
 	}
+	// 如果是同步的就要在这等
 	if sync {
 		return db.journalWriter.Sync()
 	}
@@ -64,6 +67,7 @@ retry:
 }
 
 // 刷memtable到第0层
+// 不一定要刷盘 如果memtable中剩余位置是大于n的时候就不刷，且不压缩
 func (db *DB) flush(n int) (mdb *memDB, mdbFree int, err error) {
 	delayed := false
 	// 默认8个文件就要慢下来
@@ -141,8 +145,7 @@ func (db *DB) flush(n int) (mdb *memDB, mdbFree int, err error) {
 		// 如果没delay但是写延迟次数大于1 写log然后清零
 	} else if db.writeDelayN > 0 {
 		db.logf("db@write was delayed N·%d T·%v", db.writeDelayN, db.writeDelay)
-		// TODO 实在没看懂这在干嘛
-		// TODO 2022.06.13
+		// cWriteDelayN是用来统计的 不睡writeDelay
 		atomic.AddInt32(&db.cWriteDelayN, int32(db.writeDelayN))
 		atomic.AddInt64(&db.cWriteDelay, int64(db.writeDelay))
 		db.writeDelay = 0
@@ -173,6 +176,7 @@ func (db *DB) unlockWrite(overflow bool, merged int, err error) {
 
 // ourBatch is batch that we can modify.
 func (db *DB) writeLocked(batch, ourBatch *Batch, merge, sync bool) error {
+	// 刷memdb到第0层，如果写太快了，会放慢或者暂停写操作防止压缩跟不上
 	// Try to flush memdb. This method would also trying to throttle writes
 	// if it is too fast and compaction cannot catch-up.
 	mdb, mdbFree, err := db.flush(batch.internalLen)
@@ -191,11 +195,14 @@ func (db *DB) writeLocked(batch, ourBatch *Batch, merge, sync bool) error {
 	if merge {
 		// Merge limit.
 		var mergeLimit int
+		// 128*(2^10)
 		if batch.internalLen > 128<<10 {
+			// TODO 为什么要有这两个差别
 			mergeLimit = (1 << 20) - batch.internalLen
 		} else {
 			mergeLimit = 128 << 10
 		}
+		// 因为前面flush的操作 这里肯定是大于0的
 		mergeCap := mdbFree - batch.internalLen
 		if mergeLimit > mergeCap {
 			mergeLimit = mergeCap
@@ -204,6 +211,8 @@ func (db *DB) writeLocked(batch, ourBatch *Batch, merge, sync bool) error {
 	merge:
 		for mergeLimit > 0 {
 			select {
+			// 如果writemergechannel里面吗没有消息 就直接跳过merge就行
+			// 否则就一直merge直到mergeLimit <= 0
 			case incoming := <-db.writeMergeC:
 				if incoming.batch != nil {
 					// Merge batch.
@@ -211,15 +220,18 @@ func (db *DB) writeLocked(batch, ourBatch *Batch, merge, sync bool) error {
 						overflow = true
 						break merge
 					}
+					// 批量merge
 					batches = append(batches, incoming.batch)
 					mergeLimit -= incoming.batch.internalLen
 				} else {
 					// Merge put.
+					// 如果batch为空 就说明是单个kv来的 并且key和value加起来大于merge限制了 就溢出了
 					internalLen := len(incoming.key) + len(incoming.value) + 8
 					if internalLen > mergeLimit {
 						overflow = true
 						break merge
 					}
+					// 没有溢出就从Batch池子里捞个4M的空间 加入到batch中
 					if ourBatch == nil {
 						ourBatch = db.batchPool.Get().(*Batch)
 						ourBatch.Reset()
@@ -227,11 +239,13 @@ func (db *DB) writeLocked(batch, ourBatch *Batch, merge, sync bool) error {
 					}
 					// We can use same batch since concurrent write doesn't
 					// guarantee write order.
+					// 自定义批量写
 					ourBatch.appendRec(incoming.keyType, incoming.key, incoming.value)
 					mergeLimit -= internalLen
 				}
 				sync = sync || incoming.sync
 				merged++
+				// 这里是merged不是merge
 				db.writeMergedC <- true
 
 			default:
@@ -241,6 +255,7 @@ func (db *DB) writeLocked(batch, ourBatch *Batch, merge, sync bool) error {
 	}
 
 	// Release ourBatch if any.
+	// TODO 往池子里put自己的batch
 	if ourBatch != nil {
 		defer db.batchPool.Put(ourBatch)
 	}
@@ -249,12 +264,14 @@ func (db *DB) writeLocked(batch, ourBatch *Batch, merge, sync bool) error {
 	seq := db.seq + 1
 
 	// Write journal.
+	// 把batch中的数据写到日志的buf中
 	if err := db.writeJournal(batches, seq, sync); err != nil {
 		db.unlockWrite(overflow, merged, err)
 		return err
 	}
 
 	// Put batches.
+	// 往memtable里面放kv
 	for _, batch := range batches {
 		if err := batch.putMem(seq, mdb.DB); err != nil {
 			panic(err)
