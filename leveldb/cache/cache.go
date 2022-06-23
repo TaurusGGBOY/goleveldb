@@ -15,6 +15,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
+// TODO 这个是什么cache 线程安全的cache
 // Cacher provides interface to implements a caching functionality.
 // An implementation must be safe for concurrent use.
 type Cacher interface {
@@ -24,12 +25,15 @@ type Cacher interface {
 	// SetCapacity sets cache capacity.
 	SetCapacity(capacity int)
 
+	// TODO 提升什么？
 	// Promote promotes the 'cache node'.
 	Promote(n *Node)
 
+	// TODO ban什么？
 	// Ban evicts the 'cache node' and prevent subsequent 'promote'.
 	Ban(n *Node)
 
+	// TODO LRU的牺牲吗？
 	// Evict evicts the 'cache node'.
 	Evict(n *Node)
 

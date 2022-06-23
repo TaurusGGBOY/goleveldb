@@ -51,12 +51,14 @@ func (r *lru) reset() {
 	r.used = 0
 }
 
+// 他是怎么知道自己是继承了接口的？ 所有的具有共性的方法定义在一起，任何其他类型只要实现了这些方法就是实现了这个接口。
 func (r *lru) Capacity() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.capacity
 }
 
+// TODO 2022.06.23
 func (r *lru) SetCapacity(capacity int) {
 	var evicted []*lruNode
 

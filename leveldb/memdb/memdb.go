@@ -23,6 +23,7 @@ var (
 	ErrIterReleased = errors.New("leveldb/memdb: iterator released")
 )
 
+// 层高最多是12
 const tMaxHeight = 12
 
 type dbIter struct {
@@ -201,6 +202,7 @@ type DB struct {
 	kvSize    int
 }
 
+// TODO 为什么是有25%的几率会增加一层
 func (p *DB) randHeight() (h int) {
 	const branching = 4
 	h = 1
@@ -306,12 +308,14 @@ func (p *DB) Put(key []byte, value []byte) error {
 		p.maxHeight = h
 	}
 
-	// TODO 2022.6.14
 	kvOffset := len(p.kvData)
 	p.kvData = append(p.kvData, key...)
 	p.kvData = append(p.kvData, value...)
 	// Node
 	node := len(p.nodeData)
+	// 学习了 还可以这么用 builder模式
+	// TODO 感觉是个跳表？不太清楚 这个后面再看看 随机让前面h个结点指向自己 然后自己指向后面
+	// TODO 为什么用的是跳表？实现简单一点吗？
 	p.nodeData = append(p.nodeData, kvOffset, len(key), len(value), h)
 	for i, n := range p.prevNode[:h] {
 		m := n + nNext + i
@@ -319,7 +323,9 @@ func (p *DB) Put(key []byte, value []byte) error {
 		p.nodeData[m] = node
 	}
 
+	// TODO key和value的长度可能不一样？
 	p.kvSize += len(key) + len(value)
+	// n是结点数量 单增的
 	p.n++
 	return nil
 }
@@ -332,6 +338,7 @@ func (p *DB) Delete(key []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	// 先要找到
 	node, exact := p.findGE(key, true)
 	if !exact {
 		return ErrNotFound
