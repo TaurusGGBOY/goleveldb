@@ -25,15 +25,12 @@ type Cacher interface {
 	// SetCapacity sets cache capacity.
 	SetCapacity(capacity int)
 
-	// TODO 提升什么？
 	// Promote promotes the 'cache node'.
 	Promote(n *Node)
 
-	// TODO ban什么？
 	// Ban evicts the 'cache node' and prevent subsequent 'promote'.
 	Ban(n *Node)
 
-	// TODO LRU的牺牲吗？
 	// Evict evicts the 'cache node'.
 	Evict(n *Node)
 
@@ -52,6 +49,7 @@ type Cacher interface {
 type Value interface{}
 
 // NamespaceGetter provides convenient wrapper for namespace.
+// 只是包装了一下
 type NamespaceGetter struct {
 	Cache *Cache
 	NS    uint64
@@ -231,51 +229,61 @@ type mNode struct {
 	shrinkThreshold int32
 }
 
+// TODO 2022.06.28
+// 初始化桶感觉也不简单
 func (n *mNode) initBucket(i uint32) *mBucket {
 	if b := (*mBucket)(atomic.LoadPointer(&n.buckets[i])); b != nil {
 		return b
 	}
 
 	p := (*mNode)(atomic.LoadPointer(&n.pred))
-	if p != nil {
-		var node []*Node
-		if n.mask > p.mask {
-			// Grow.
-			pb := (*mBucket)(atomic.LoadPointer(&p.buckets[i&p.mask]))
-			if pb == nil {
-				pb = p.initBucket(i & p.mask)
-			}
-			m := pb.freeze()
-			// Split nodes.
-			for _, x := range m {
-				if x.hash&n.mask == i {
-					node = append(node, x)
-				}
-			}
-		} else {
-			// Shrink.
-			pb0 := (*mBucket)(atomic.LoadPointer(&p.buckets[i]))
-			if pb0 == nil {
-				pb0 = p.initBucket(i)
-			}
-			pb1 := (*mBucket)(atomic.LoadPointer(&p.buckets[i+uint32(len(n.buckets))]))
-			if pb1 == nil {
-				pb1 = p.initBucket(i + uint32(len(n.buckets)))
-			}
-			m0 := pb0.freeze()
-			m1 := pb1.freeze()
-			// Merge nodes.
-			node = make([]*Node, 0, len(m0)+len(m1))
-			node = append(node, m0...)
-			node = append(node, m1...)
+
+	// 提前返回
+	if p == nil {
+		return (*mBucket)(atomic.LoadPointer(&n.buckets[i]))
+	}
+	//
+	var node []*Node
+	if n.mask > p.mask {
+		// Grow.
+		pb := (*mBucket)(atomic.LoadPointer(&p.buckets[i&p.mask]))
+		if pb == nil {
+			pb = p.initBucket(i & p.mask)
 		}
-		b := &mBucket{node: node}
-		if atomic.CompareAndSwapPointer(&n.buckets[i], nil, unsafe.Pointer(b)) {
-			if len(node) > mOverflowThreshold {
-				atomic.AddInt32(&n.overflow, int32(len(node)-mOverflowThreshold))
+		// 如果桶里面有 先冻结
+		m := pb.freeze()
+		// Split nodes.
+		// TODO 返回桶里面的结点 如果这个节点和n掩码相与等于i 就把这个节点加入暂存 暂存了用来干什么
+		for _, x := range m {
+			if x.hash&n.mask == i {
+				node = append(node, x)
 			}
-			return b
 		}
+	} else {
+		// Shrink.
+		// TODO 为何是合并？ 为何从掩码就能判断出是合并？
+		pb0 := (*mBucket)(atomic.LoadPointer(&p.buckets[i]))
+		if pb0 == nil {
+			pb0 = p.initBucket(i)
+		}
+		pb1 := (*mBucket)(atomic.LoadPointer(&p.buckets[i+uint32(len(n.buckets))]))
+		if pb1 == nil {
+			pb1 = p.initBucket(i + uint32(len(n.buckets)))
+		}
+		m0 := pb0.freeze()
+		m1 := pb1.freeze()
+		// Merge nodes.
+		node = make([]*Node, 0, len(m0)+len(m1))
+		node = append(node, m0...)
+		node = append(node, m1...)
+	}
+	b := &mBucket{node: node}
+	if atomic.CompareAndSwapPointer(&n.buckets[i], nil, unsafe.Pointer(b)) {
+		// 如果结点>32了 标记一下溢出了
+		if len(node) > mOverflowThreshold {
+			atomic.AddInt32(&n.overflow, int32(len(node)-mOverflowThreshold))
+		}
+		return b
 	}
 
 	return (*mBucket)(atomic.LoadPointer(&n.buckets[i]))
@@ -319,6 +327,7 @@ func NewCache(cacher Cacher) *Cache {
 
 func (r *Cache) getBucket(hash uint32) (*mNode, *mBucket) {
 	h := (*mNode)(atomic.LoadPointer(&r.mHead))
+	// hash与掩码求与得到桶 如果还是空的 就创建一个
 	i := hash & h.mask
 	b := (*mBucket)(atomic.LoadPointer(&h.buckets[i]))
 	if b == nil {
@@ -375,6 +384,7 @@ func (r *Cache) Get(ns, key uint64, setFunc func() (size int, value Value)) *Han
 		return nil
 	}
 
+	// 通过命名空间+密钥+种子算hash
 	hash := murmur32(ns, key, 0xf00)
 	for {
 		h, b := r.getBucket(hash)
@@ -631,6 +641,7 @@ func (n *Node) unref() {
 func (n *Node) unrefLocked() {
 	if atomic.AddInt32(&n.ref, -1) == 0 {
 		n.r.mu.RLock()
+		// 减少了引用计数的时候 如果cache已经不用了 就删除桶里面的结点
 		if !n.r.closed {
 			n.r.delete(n)
 		}
@@ -656,12 +667,15 @@ func (h *Handle) Value() Value {
 // It is safe to call release multiple times.
 func (h *Handle) Release() {
 	nPtr := atomic.LoadPointer(&h.n)
+	// CAS成空指针
 	if nPtr != nil && atomic.CompareAndSwapPointer(&h.n, nPtr, nil) {
 		n := (*Node)(nPtr)
+		// 然后减少这个引用计数
 		n.unrefLocked()
 	}
 }
 
+// hash就不看了
 func murmur32(ns, key uint64, seed uint32) uint32 {
 	const (
 		m = uint32(0x5bd1e995)

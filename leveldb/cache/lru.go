@@ -19,6 +19,7 @@ type lruNode struct {
 	next, prev *lruNode
 }
 
+// 这个倒是不难 就是插入到at的后面
 func (n *lruNode) insert(at *lruNode) {
 	x := at.next
 	at.next = n
@@ -27,6 +28,7 @@ func (n *lruNode) insert(at *lruNode) {
 	x.prev = n
 }
 
+// 这个还考虑一手线程安全？自己删除自己就好
 func (n *lruNode) remove() {
 	if n.prev != nil {
 		n.prev.next = n.next
@@ -38,6 +40,7 @@ func (n *lruNode) remove() {
 	}
 }
 
+// TODO recent不太懂
 type lru struct {
 	mu       sync.Mutex
 	capacity int
@@ -45,6 +48,7 @@ type lru struct {
 	recent   lruNode
 }
 
+// 最近使用节点设置左右为自己 使用过的结点设置为0
 func (r *lru) reset() {
 	r.recent.next = &r.recent
 	r.recent.prev = &r.recent
@@ -58,12 +62,14 @@ func (r *lru) Capacity() int {
 	return r.capacity
 }
 
-// TODO 2022.06.23
+// TODO 如果使用的不是大于就不用扩容？为啥是需要缩小啊
 func (r *lru) SetCapacity(capacity int) {
 	var evicted []*lruNode
 
 	r.mu.Lock()
+	// 这个尺寸不是个数 而是占用字节大小
 	r.capacity = capacity
+	// 如果缩容不够，就一直缩
 	for r.used > r.capacity {
 		rn := r.recent.prev
 		if rn == nil {
@@ -72,6 +78,7 @@ func (r *lru) SetCapacity(capacity int) {
 		rn.remove()
 		rn.n.CacheData = nil
 		r.used -= rn.n.Size()
+		// 懒回收
 		evicted = append(evicted, rn)
 	}
 	r.mu.Unlock()
@@ -81,17 +88,21 @@ func (r *lru) SetCapacity(capacity int) {
 	}
 }
 
+// 就是把这个节点 更新为最新用过的结点 相当于刷新一下
 func (r *lru) Promote(n *Node) {
 	var evicted []*lruNode
 
 	r.mu.Lock()
 	if n.CacheData == nil {
+		// 这啥意思啊 我的大小<=cap? 这没错吗 不应该是n.size()+r.Size() <= r.cap？
+		// 只要你是小于等于的就可以往里面加 如果超了 可以剔除一些过期的
 		if n.Size() <= r.capacity {
 			rn := &lruNode{n: n, h: n.GetHandle()}
 			rn.insert(&r.recent)
 			n.CacheData = unsafe.Pointer(rn)
 			r.used += n.Size()
 
+			// TODO 牺牲的是最近的前一个？这？
 			for r.used > r.capacity {
 				rn := r.recent.prev
 				if rn == nil {
@@ -104,6 +115,7 @@ func (r *lru) Promote(n *Node) {
 			}
 		}
 	} else {
+		// 删了再插入 相当于刷新
 		rn := (*lruNode)(n.CacheData)
 		if !rn.ban {
 			rn.remove()
@@ -117,18 +129,21 @@ func (r *lru) Promote(n *Node) {
 	}
 }
 
+// TODO ban的作用是？
 func (r *lru) Ban(n *Node) {
 	r.mu.Lock()
 	if n.CacheData == nil {
 		n.CacheData = unsafe.Pointer(&lruNode{n: n, ban: true})
 	} else {
 		rn := (*lruNode)(n.CacheData)
+		// 如果已经ban了 不进行操作
 		if !rn.ban {
+			// 如果没ban 就删除缓存 然后设置ban为true
 			rn.remove()
 			rn.ban = true
 			r.used -= rn.n.Size()
 			r.mu.Unlock()
-
+			// 这个时候已经不需要操作r了，所以就释放了锁 算是性能上的优化吧
 			rn.h.Release()
 			rn.h = nil
 			return
@@ -137,9 +152,11 @@ func (r *lru) Ban(n *Node) {
 	r.mu.Unlock()
 }
 
+// 放逐的意思
 func (r *lru) Evict(n *Node) {
 	r.mu.Lock()
 	rn := (*lruNode)(n.CacheData)
+	// 如果ban了 就不用管了
 	if rn == nil || rn.ban {
 		r.mu.Unlock()
 		return
@@ -150,10 +167,12 @@ func (r *lru) Evict(n *Node) {
 	rn.h.Release()
 }
 
+// 整个命名空间都干掉
 func (r *lru) EvictNS(ns uint64) {
 	var evicted []*lruNode
 
 	r.mu.Lock()
+	// TODO 这个recent感觉就是队尾的意思？
 	for e := r.recent.prev; e != &r.recent; {
 		rn := e
 		e = e.prev
@@ -171,6 +190,7 @@ func (r *lru) EvictNS(ns uint64) {
 	}
 }
 
+// 全放逐了
 func (r *lru) EvictAll() {
 	r.mu.Lock()
 	back := r.recent.prev
@@ -185,6 +205,7 @@ func (r *lru) EvictAll() {
 	}
 }
 
+// close什么都不做？
 func (r *lru) Close() error {
 	return nil
 }
