@@ -10,6 +10,7 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/util"
 )
 
+// TODO 2022.06.30
 func bloomHash(key []byte) uint32 {
 	return util.Hash(key, 0xbc9f1d34)
 }

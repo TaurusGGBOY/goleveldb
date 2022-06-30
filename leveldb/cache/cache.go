@@ -71,12 +71,14 @@ const (
 	mOverflowGrowThreshold = 1 << 7
 )
 
+// 拉链法 一个桶里放多个node
 type mBucket struct {
 	mu     sync.Mutex
 	node   []*Node
 	frozen bool
 }
 
+// 不让get 用来扩容？
 func (b *mBucket) freeze() []*Node {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -95,7 +97,10 @@ func (b *mBucket) get(r *Cache, h *mNode, hash uint32, ns, key uint64, noset boo
 	}
 
 	// Scan the node.
+	// 拉链法直接扫所有node就行吧
 	for _, n := range b.node {
+		// hash相同？ 不是只要hash & mask相同就行？而且为啥会不一样呢？ 命名空间相同 key相同 哦 一定要是这个key
+		// 增加节点的引用计数 直接return了
 		if n.hash == hash && n.ns == ns && n.key == key {
 			atomic.AddInt32(&n.ref, 1)
 			b.mu.Unlock()
@@ -104,6 +109,7 @@ func (b *mBucket) get(r *Cache, h *mNode, hash uint32, ns, key uint64, noset boo
 	}
 
 	// Get only.
+	// 如果get没有就加入进去
 	if noset {
 		b.mu.Unlock()
 		return true, false, nil
@@ -118,26 +124,36 @@ func (b *mBucket) get(r *Cache, h *mNode, hash uint32, ns, key uint64, noset boo
 		ref:  1,
 	}
 	// Add node to bucket.
+	// 投桶
 	b.node = append(b.node, n)
 	bLen := len(b.node)
 	b.mu.Unlock()
 
 	// Update counter.
+	// 如果整个cache结点的数量大于2048
 	grow := atomic.AddInt32(&r.nodes, 1) >= h.growThreshold
+	// 或者桶里面的结点大于32个
 	if bLen > mOverflowThreshold {
 		grow = grow || atomic.AddInt32(&h.overflow, 1) >= mOverflowGrowThreshold
 	}
 
 	// Grow.
+	// 设置正在resize
+	// TODO 太迷了吧 resize完事儿了之后没有地方恢复
 	if grow && atomic.CompareAndSwapInt32(&h.resizeInProgess, 0, 1) {
+		// 加倍扩容
 		nhLen := len(h.buckets) << 1
 		nh := &mNode{
-			buckets:         make([]unsafe.Pointer, nhLen),
-			mask:            uint32(nhLen) - 1,
-			pred:            unsafe.Pointer(h),
-			growThreshold:   int32(nhLen * mOverflowThreshold),
+			// TODO 这是空桶啊？空桶里面的东西没有地方填充
+			buckets: make([]unsafe.Pointer, nhLen),
+			mask:    uint32(nhLen) - 1,
+			pred:    unsafe.Pointer(h),
+			// 阈值也成倍增长
+			growThreshold: int32(nhLen * mOverflowThreshold),
+			// 如果是一半大小就收缩
 			shrinkThreshold: int32(nhLen >> 1),
 		}
+		// CAS来替换头结点
 		ok := atomic.CompareAndSwapPointer(&r.mHead, unsafe.Pointer(h), unsafe.Pointer(nh))
 		if !ok {
 			panic("BUG: failed swapping head")
@@ -164,21 +180,25 @@ func (b *mBucket) delete(r *Cache, h *mNode, hash uint32, ns, key uint64) (done,
 	for i := range b.node {
 		n = b.node[i]
 		if n.ns == ns && n.key == key {
-			if atomic.LoadInt32(&n.ref) == 0 {
-				deleted = true
-
-				// Call releaser.
-				if n.value != nil {
-					if r, ok := n.value.(util.Releaser); ok {
-						r.Release()
-					}
-					n.value = nil
-				}
-
-				// Remove node from bucket.
-				b.node = append(b.node[:i], b.node[i+1:]...)
-				bLen = len(b.node)
+			// 如果引用计数是0 直接删除 如果不是0呢？ 直接break
+			if atomic.LoadInt32(&n.ref) != 0 {
+				break
 			}
+			deleted = true
+
+			// Call releaser.
+			// 释放这个节点
+			if n.value != nil {
+				if r, ok := n.value.(util.Releaser); ok {
+					r.Release()
+				}
+				n.value = nil
+			}
+
+			// Remove node from bucket.
+			// 线性删除这个点
+			b.node = append(b.node[:i], b.node[i+1:]...)
+			bLen = len(b.node)
 			break
 		}
 	}
@@ -186,11 +206,13 @@ func (b *mBucket) delete(r *Cache, h *mNode, hash uint32, ns, key uint64) (done,
 
 	if deleted {
 		// Call OnDel.
+		// 如果删除了 执行一些回调
 		for _, f := range n.onDel {
 			f()
 		}
 
 		// Update counter.
+		// 减法就是加法减负
 		atomic.AddInt32(&r.size, int32(n.size)*-1)
 		shrink := atomic.AddInt32(&r.nodes, -1) < h.shrinkThreshold
 		if bLen >= mOverflowThreshold {
@@ -198,9 +220,11 @@ func (b *mBucket) delete(r *Cache, h *mNode, hash uint32, ns, key uint64) (done,
 		}
 
 		// Shrink.
+		// 收缩也需要设置标志位 但是没有恢复
 		if shrink && len(h.buckets) > mInitialSize && atomic.CompareAndSwapInt32(&h.resizeInProgess, 0, 1) {
 			nhLen := len(h.buckets) >> 1
 			nh := &mNode{
+				// 扩容直接把里面的东西丢了？秀
 				buckets:         make([]unsafe.Pointer, nhLen),
 				mask:            uint32(nhLen) - 1,
 				pred:            unsafe.Pointer(h),
@@ -229,7 +253,6 @@ type mNode struct {
 	shrinkThreshold int32
 }
 
-// TODO 2022.06.28
 // 初始化桶感觉也不简单
 func (n *mNode) initBucket(i uint32) *mBucket {
 	if b := (*mBucket)(atomic.LoadPointer(&n.buckets[i])); b != nil {
@@ -242,7 +265,6 @@ func (n *mNode) initBucket(i uint32) *mBucket {
 	if p == nil {
 		return (*mBucket)(atomic.LoadPointer(&n.buckets[i]))
 	}
-	//
 	var node []*Node
 	if n.mask > p.mask {
 		// Grow.
@@ -293,6 +315,7 @@ func (n *mNode) initBuckets() {
 	for i := range n.buckets {
 		n.initBucket(uint32(i))
 	}
+	// TODO pred为什么要初始化为空？
 	atomic.StorePointer(&n.pred, nil)
 }
 
@@ -310,15 +333,20 @@ type Cache struct {
 // may be nil.
 func NewCache(cacher Cacher) *Cache {
 	h := &mNode{
-		buckets:         make([]unsafe.Pointer, mInitialSize),
-		mask:            mInitialSize - 1,
-		growThreshold:   int32(mInitialSize * mOverflowThreshold),
+		buckets: make([]unsafe.Pointer, mInitialSize),
+		// 初始化mask为15
+		// 就是默认16个桶吧
+		mask: mInitialSize - 1,
+		// 上限是2048
+		growThreshold: int32(mInitialSize * mOverflowThreshold),
+		// 收缩阈值是0
 		shrinkThreshold: 0,
 	}
 	for i := range h.buckets {
 		h.buckets[i] = unsafe.Pointer(&mBucket{})
 	}
 	r := &Cache{
+		// 头结点是h
 		mHead:  unsafe.Pointer(h),
 		cacher: cacher,
 	}
@@ -389,34 +417,41 @@ func (r *Cache) Get(ns, key uint64, setFunc func() (size int, value Value)) *Han
 	for {
 		h, b := r.getBucket(hash)
 		done, _, n := b.get(r, h, hash, ns, key, setFunc == nil)
-		if done {
-			if n != nil {
-				n.mu.Lock()
-				if n.value == nil {
-					if setFunc == nil {
-						n.mu.Unlock()
-						n.unref()
-						return nil
-					}
-
-					n.size, n.value = setFunc()
-					if n.value == nil {
-						n.size = 0
-						n.mu.Unlock()
-						n.unref()
-						return nil
-					}
-					atomic.AddInt32(&r.size, int32(n.size))
-				}
-				n.mu.Unlock()
-				if r.cacher != nil {
-					r.cacher.Promote(n)
-				}
-				return &Handle{unsafe.Pointer(n)}
-			}
-
+		if !done {
+			continue
+		}
+		if n == nil {
 			break
 		}
+		n.mu.Lock()
+		// 如果值为空
+		if n.value == nil {
+			// set函数如果为空
+			if setFunc == nil {
+				n.mu.Unlock()
+				n.unref()
+				// 返回空
+				return nil
+			}
+
+			// TODO 否则运行set函数 这个set会把value放到cache中吗
+			n.size, n.value = setFunc()
+			// 如果值还是为空 返回空
+			if n.value == nil {
+				n.size = 0
+				n.mu.Unlock()
+				n.unref()
+				return nil
+			}
+			// 否则往size中加大小
+			atomic.AddInt32(&r.size, int32(n.size))
+		}
+		n.mu.Unlock()
+		// 如果缓存不为空 就提升一下结点n
+		if r.cacher != nil {
+			r.cacher.Promote(n)
+		}
+		return &Handle{unsafe.Pointer(n)}
 	}
 	return nil
 }

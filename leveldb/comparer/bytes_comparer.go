@@ -18,15 +18,21 @@ func (bytesComparer) Name() string {
 	return "leveldb.BytewiseComparator"
 }
 
+// 懂了……和前一个比较 只保存不同的地方 减少key的大小的
 func (bytesComparer) Separator(dst, a, b []byte) []byte {
 	i, n := 0, len(a)
+	// n是ab最小大小
 	if n > len(b) {
 		n = len(b)
 	}
+	// 一直遍历到两者最小的大小处
 	for ; i < n && a[i] == b[i]; i++ {
 	}
 	if i >= n {
+		// 如果i==n了 就其中一个是前缀 返回空
 		// Do not shorten if one string is a prefix of the other
+		// 否则如果a小 就把a加入dst 并截断最后一个byte
+		// 意义不明……
 	} else if c := a[i]; c < 0xff && c+1 < b[i] {
 		dst = append(dst, a[:i+1]...)
 		dst[len(dst)-1]++
@@ -35,6 +41,7 @@ func (bytesComparer) Separator(dst, a, b []byte) []byte {
 	return nil
 }
 
+// 然后这个是给个前缀和key用来恢复的
 func (bytesComparer) Successor(dst, b []byte) []byte {
 	for i, c := range b {
 		if c != 0xff {
