@@ -131,6 +131,7 @@ type arrayIterator struct {
 	key, value []byte
 }
 
+// TODO 这个是懒更新吗？
 func (i *arrayIterator) updateKV() {
 	if i.pos == i.basicArrayIterator.pos {
 		return

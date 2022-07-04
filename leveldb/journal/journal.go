@@ -96,6 +96,7 @@ const (
 )
 
 const (
+	// TODO 32K
 	blockSize  = 32 * 1024
 	headerSize = 7
 )
@@ -176,6 +177,7 @@ func (r *Reader) corrupt(n int, reason string, skip bool) error {
 // next block into the buffer if necessary.
 func (r *Reader) nextChunk(first bool) error {
 	for {
+		// 先取header
 		if r.j+headerSize <= r.n {
 			checksum := binary.LittleEndian.Uint32(r.buf[r.j+0 : r.j+4])
 			length := binary.LittleEndian.Uint16(r.buf[r.j+4 : r.j+6])
@@ -216,6 +218,7 @@ func (r *Reader) nextChunk(first bool) error {
 			return nil
 		}
 
+		// TODO 2022.07.04
 		// The last block.
 		if r.n < blockSize && r.n > 0 {
 			if !first {
@@ -226,6 +229,7 @@ func (r *Reader) nextChunk(first bool) error {
 		}
 
 		// Read block.
+		// reader从buf中读所有
 		n, err := io.ReadFull(r.r, r.buf[:])
 		if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 			return err
@@ -398,6 +402,7 @@ func (w *Writer) fillHeader(last bool) {
 // writeBlock writes the buffered block to the underlying writer, and reserves
 // space for the next chunk's header.
 func (w *Writer) writeBlock() {
+	// TODO 这个确定只写了7个字节吗
 	_, w.err = w.w.Write(w.buf[w.written:])
 	w.i = 0
 	w.j = headerSize
@@ -406,6 +411,7 @@ func (w *Writer) writeBlock() {
 
 // writePending finishes the current journal and writes the buffer to the
 // underlying writer.
+// TODO 这个哪里阻塞了……
 func (w *Writer) writePending() {
 	if w.err != nil {
 		return
@@ -474,6 +480,7 @@ func (w *Writer) Next() (io.Writer, error) {
 		w.fillHeader(true)
 	}
 	w.i = w.j
+	// TODO 只加7会不会太小啊
 	w.j = w.j + headerSize
 	// Check if there is room in the block for the header.
 	if w.j > blockSize {

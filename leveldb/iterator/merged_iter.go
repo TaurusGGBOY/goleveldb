@@ -111,6 +111,7 @@ func (i *mergedIterator) Seek(key []byte) bool {
 		return false
 	}
 
+	// TODO 多个迭代器？ 这个是L0用的？
 	for x, iter := range i.iters {
 		switch {
 		case iter.Seek(key):
