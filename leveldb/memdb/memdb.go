@@ -194,7 +194,7 @@ type DB struct {
 	// [2]         : Value length
 	// [3]         : Height
 	// [3..height] : Next nodes
-	// TODO 接下来的结点？们？
+	// 这个存的是所有的跳表数据了
 	nodeData  []int
 	prevNode  [tMaxHeight]int
 	maxHeight int
@@ -202,7 +202,7 @@ type DB struct {
 	kvSize    int
 }
 
-// TODO 为什么是有25%的几率会增加一层
+// 有25%的概率会往上涨 那么这个分布式不均匀的
 func (p *DB) randHeight() (h int) {
 	const branching = 4
 	h = 1
@@ -213,25 +213,36 @@ func (p *DB) randHeight() (h int) {
 }
 
 // Must hold RW-lock if prev == true, as it use shared prevNode slice.
-// TODO 需要后面看看是怎么存的 看起来还是二叉树存放 但是很奇怪
 func (p *DB) findGE(key []byte, prev bool) (int, bool) {
 	node := 0
+	// 从上往下往后遍历
+	// 因为上面的链路要小一点
 	h := p.maxHeight - 1
 	for {
 		// nNext应该是NextNodes吧 然后h是最多到哪里 里面应该是顺序排放的
+		// 第0个是0+5+h 第0个结点的
+		// 每个数据是一个node？然后nNext之后有12个节点
+		// 存储是[xxx,xxx,xx,xxx,[xxx,xxx,xx,...,xxx]]
 		next := p.nodeData[node+nNext+h]
 		cmp := 1
 		if next != 0 {
+			// 拿到下一个节点的index
 			o := p.nodeData[next]
 			// 得到的是next的偏移量？偏移量+nkey就得到key的位置
-			// TODO 这没看懂 在比的是怎么取出来的
+			// 取的是n.KV+n.Key
 			cmp = p.cmp.Compare(p.kvData[o:o+p.nodeData[next+nKey]], key)
 		}
 		if cmp < 0 {
 			// Keep searching in this list
+			// 如果小的话 不用往下移动高度了 先往后移动
 			node = next
 		} else {
+			// 否则相等的话 可以直接返回了
+			// 不等的话 如果高度已经是0了 就返回next 说明已经是最接近的一个了
+			// 否则最接近的还可能是下层
+			// 反正肯定是在第0层找到的
 			if prev {
+				// 从上到下记录可能要得节点的前一个结点 方便后面删除之类的操作
 				p.prevNode[h] = node
 			} else if cmp == 0 {
 				return next, true
@@ -266,6 +277,7 @@ func (p *DB) findLast() int {
 	node := 0
 	h := p.maxHeight - 1
 	for {
+		// 如果最上面一层没有 需要往下走 知道到第0层
 		next := p.nodeData[node+nNext+h]
 		if next == 0 {
 			if h == 0 {
@@ -287,8 +299,9 @@ func (p *DB) Put(key []byte, value []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// TODO 找到大于等于key的结点，如果正好是
+	// 找到大于等于key的结点，如果正好是
 	if node, exact := p.findGE(key, true); exact {
+		// TODO 这样的话 原来的kvData存kv的地方不能释放 这不会爆内存？
 		kvOffset := len(p.kvData)
 		p.kvData = append(p.kvData, key...)
 		p.kvData = append(p.kvData, value...)
@@ -299,10 +312,11 @@ func (p *DB) Put(key []byte, value []byte) error {
 		return nil
 	}
 
-	// TODO 为什么随机高度好使
 	h := p.randHeight()
+	// 这个随机高度 可能超过很多现在的高度
 	if h > p.maxHeight {
 		for i := p.maxHeight; i < h; i++ {
+			// TODO prev到底是？
 			p.prevNode[i] = 0
 		}
 		p.maxHeight = h
@@ -312,15 +326,25 @@ func (p *DB) Put(key []byte, value []byte) error {
 	p.kvData = append(p.kvData, key...)
 	p.kvData = append(p.kvData, value...)
 	// Node
+	// 最后一个节点的索引
+	// 也就是要添加的这个节点的索引
 	node := len(p.nodeData)
 	// 学习了 还可以这么用 builder模式
-	// TODO 感觉是个跳表？不太清楚 这个后面再看看 随机让前面h个结点指向自己 然后自己指向后面
-	// TODO 为什么用的是跳表？实现简单一点吗？
 	p.nodeData = append(p.nodeData, kvOffset, len(key), len(value), h)
+	// 对于0-h都添加上
 	for i, n := range p.prevNode[:h] {
+		// 原本的next的索引
 		m := n + nNext + i
+		// 把原本的next放到最后去
+		// next_index = p.nodeData[m]
+		// 然后刚好要放next_index到上面追加的结点的最后
+		// 妙啊
+		// 后面的也是追加了 而且是从0-h的追加 妙妙妙……
+		// TODO 2022.07.05
 		p.nodeData = append(p.nodeData, p.nodeData[m])
+		// 让原本的next等于现在的node
 		p.nodeData[m] = node
+		// 完成一次插入
 	}
 
 	// TODO key和value的长度可能不一样？
@@ -345,8 +369,11 @@ func (p *DB) Delete(key []byte) error {
 	}
 
 	h := p.nodeData[node+nHeight]
+	// 从上往下删
 	for i, n := range p.prevNode[:h] {
 		m := n + nNext + i
+		// 第m个节点=原来第m个节点的next
+		// TODO 这样真的能传递位置信息吗……
 		p.nodeData[m] = p.nodeData[p.nodeData[m]+nNext+i]
 	}
 
@@ -392,7 +419,6 @@ func (p *DB) Find(key []byte) (rkey, value []byte, err error) {
 	// 加锁 这个效率……
 	// 哦 读锁
 	p.mu.RLock()
-	// great equal的意思？
 	if node, _ := p.findGE(key, false); node != 0 {
 		n := p.nodeData[node]
 		m := n + p.nodeData[node+nKey]
@@ -444,8 +470,7 @@ func (p *DB) Size() int {
 	return p.kvSize
 }
 
-// 虽然但是slice不是自动增长的吗，那么往里面加东西了之后，cap不就会变化吗，那这里计算remind有什么意义？
-// 比如cap16 len8 负载因子0.75 到12的时候cap翻倍到32 这个时候不还是进行了扩容？
+// 有些kv被删了 所以就原本的slice空出了一些
 // Free returns keys/values free buffer before need to grow.
 func (p *DB) Free() int {
 	p.mu.RLock()
@@ -490,12 +515,15 @@ func (p *DB) Reset() {
 // The returned DB instance is safe for concurrent use.
 func New(cmp comparer.BasicComparer, capacity int) *DB {
 	p := &DB{
-		cmp:       cmp,
-		rnd:       rand.New(rand.NewSource(0xdeadbeef)),
+		cmp: cmp,
+		rnd: rand.New(rand.NewSource(0xdeadbeef)),
+		// 一开始高度是1
 		maxHeight: 1,
 		kvData:    make([]byte, 0, capacity),
 		nodeData:  make([]int, 4+tMaxHeight),
 	}
+	// 但是创建的时候没有管这个事情 直接创建满的 防止后面高度增加 改变内存布局
+	// 那这个是有冗余的……还不小
 	p.nodeData[nHeight] = tMaxHeight
 	return p
 }

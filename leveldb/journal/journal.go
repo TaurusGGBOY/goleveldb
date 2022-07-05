@@ -218,7 +218,6 @@ func (r *Reader) nextChunk(first bool) error {
 			return nil
 		}
 
-		// TODO 2022.07.04
 		// The last block.
 		if r.n < blockSize && r.n > 0 {
 			if !first {
