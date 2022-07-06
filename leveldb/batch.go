@@ -73,6 +73,7 @@ type Batch struct {
 	internalLen int
 }
 
+// 感觉是扩容的时候还要带上1个字节的信息？
 func (b *Batch) grow(n int) {
 	o := len(b.data)
 	if cap(b.data)-o < n {
@@ -87,20 +88,24 @@ func (b *Batch) grow(n int) {
 }
 
 func (b *Batch) appendRec(kt keyType, key, value []byte) {
+	// 1个字节的类型
 	n := 1 + binary.MaxVarintLen32 + len(key)
 	if kt == keyTypeVal {
 		n += binary.MaxVarintLen32 + len(value)
 	}
+	// batch扩张
 	b.grow(n)
 	index := batchIndex{keyType: kt}
 	o := len(b.data)
 	data := b.data[:o+n]
+	// 存放类型
 	data[o] = byte(kt)
 	o++
 	o += binary.PutUvarint(data[o:], uint64(len(key)))
 	index.keyPos = o
 	index.keyLen = len(key)
 	o += copy(data[o:], key)
+	// TODO 2022.07.06
 	if kt == keyTypeVal {
 		o += binary.PutUvarint(data[o:], uint64(len(value)))
 		index.valuePos = o

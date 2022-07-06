@@ -17,6 +17,7 @@ type BufferPool struct {
 	pool     [6]sync.Pool
 	baseline [5]int
 
+	// 这些都是统计数据
 	get     uint32
 	put     uint32
 	less    uint32
@@ -26,11 +27,13 @@ type BufferPool struct {
 }
 
 func (p *BufferPool) poolNum(n int) int {
+	// 看这个缓存的字节的长度 是哪个基线里面的
 	for i, x := range p.baseline {
 		if n <= x {
 			return i
 		}
 	}
+	// 如果最大 就是最后一个
 	return len(p.baseline)
 }
 
@@ -43,8 +46,10 @@ func (p *BufferPool) Get(n int) []byte {
 
 	poolNum := p.poolNum(n)
 
+	// 池子里面拿n个字节
 	b := p.pool[poolNum].Get().(*[]byte)
 
+	// 没命中
 	if cap(*b) == 0 {
 		// If we grabbed nothing, increment the miss stats.
 		atomic.AddUint32(&p.miss, 1)
@@ -57,6 +62,7 @@ func (p *BufferPool) Get(n int) []byte {
 		*b = make([]byte, p.baseline[poolNum])
 		*b = (*b)[:n]
 		return *b
+		// 命中了
 	} else {
 		// If there is enough capacity in the bytes grabbed, resize the length
 		// to n and return.
@@ -68,6 +74,7 @@ func (p *BufferPool) Get(n int) []byte {
 			atomic.AddUint32(&p.equal, 1)
 			*b = (*b)[:n]
 			return *b
+			// 要的太大了
 		} else if n > cap(*b) {
 			atomic.AddUint32(&p.greater, 1)
 		}
@@ -91,6 +98,7 @@ func (p *BufferPool) Put(b []byte) {
 	poolNum := p.poolNum(cap(b))
 
 	atomic.AddUint32(&p.put, 1)
+	// 放到系统自带的池子中 线程安全的
 	p.pool[poolNum].Put(&b)
 }
 
@@ -108,6 +116,8 @@ func NewBufferPool(baseline int) *BufferPool {
 		panic("baseline can't be <= 0")
 	}
 	bufPool := &BufferPool{
+		// 我不理解 这为什么要设置这三个基线
+		// 所以 一般情况下 只用开辟baseline*8个字节的buffer就能供应商所有的人
 		baseline: [...]int{baseline / 4, baseline / 2, baseline, baseline * 2, baseline * 4},
 		pool: [6]sync.Pool{
 			sync.Pool{

@@ -340,7 +340,6 @@ func (p *DB) Put(key []byte, value []byte) error {
 		// 然后刚好要放next_index到上面追加的结点的最后
 		// 妙啊
 		// 后面的也是追加了 而且是从0-h的追加 妙妙妙……
-		// TODO 2022.07.05
 		p.nodeData = append(p.nodeData, p.nodeData[m])
 		// 让原本的next等于现在的node
 		p.nodeData[m] = node

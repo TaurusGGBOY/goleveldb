@@ -102,6 +102,7 @@ func (b *Buffer) grow(n int) int {
 		panic(bytes.ErrTooLarge)
 	} else {
 		// Not enough space anywhere, we need to allocate.
+		// 扩容成两倍
 		buf := makeSlice(2*c + n)
 		copy(buf, b.buf[b.off:])
 		b.buf = buf
@@ -143,8 +144,10 @@ func (b *Buffer) Grow(n int) {
 // needed. The return value n is the length of p; err is always nil. If the
 // buffer becomes too large, Write will panic with bytes.ErrTooLarge.
 func (b *Buffer) Write(p []byte) (n int, err error) {
+	// 先看需不需要涨
 	m, ok := b.tryGrowByReslice(len(p))
 	if !ok {
+		// 需要涨
 		m = b.grow(len(p))
 	}
 	return copy(b.buf[m:], p), nil
@@ -236,6 +239,7 @@ func (b *Buffer) WriteByte(c byte) error {
 // is drained.  The return value n is the number of bytes read.  If the
 // buffer has no data to return, err is io.EOF (unless len(p) is zero);
 // otherwise it is nil.
+// 读的时候很简单 让读多少读多少 并且游标会滑动
 func (b *Buffer) Read(p []byte) (n int, err error) {
 	if b.off >= len(b.buf) {
 		// Buffer is empty, reset to recover space.

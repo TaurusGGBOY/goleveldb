@@ -22,14 +22,22 @@ const (
 )
 
 var (
-	DefaultBlockCacher                   = LRUCacher
-	DefaultBlockCacheCapacity            = 8 * MiB
-	DefaultBlockRestartInterval          = 16
-	DefaultBlockSize                     = 4 * KiB
-	DefaultCompactionExpandLimitFactor   = 25
-	DefaultCompactionGPOverlapsFactor    = 10
-	DefaultCompactionL0Trigger           = 4
-	DefaultCompactionSourceLimitFactor   = 1
+	// 默认使用LRU作为淘汰算法
+	DefaultBlockCacher = LRUCacher
+	// 默认块缓存容量8个M
+	DefaultBlockCacheCapacity = 8 * MiB
+	// 重启间隔16s？
+	DefaultBlockRestartInterval = 16
+	// 默认一个块4k
+	DefaultBlockSize = 4 * KiB
+	// 压缩扩大因子25
+	DefaultCompactionExpandLimitFactor = 25
+	// TODO 这个参数不太懂
+	DefaultCompactionGPOverlapsFactor = 10
+	// TODO 这个trigger？
+	DefaultCompactionL0Trigger         = 4
+	DefaultCompactionSourceLimitFactor = 1
+	// 默认压缩表大小
 	DefaultCompactionTableSize           = 2 * MiB
 	DefaultCompactionTableSizeMultiplier = 1.0
 	DefaultCompactionTotalSize           = 10 * MiB

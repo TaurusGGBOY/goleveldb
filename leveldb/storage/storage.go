@@ -136,6 +136,7 @@ func FileDescOk(fd FileDesc) bool {
 }
 
 // Storage is the storage. A storage instance must be safe for concurrent use.
+// 要线程安全
 type Storage interface {
 	// Lock locks the storage. Any subsequent attempt to call Lock will fail
 	// until the last lock released.
