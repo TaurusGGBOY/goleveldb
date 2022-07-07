@@ -97,19 +97,23 @@ func (b *Batch) appendRec(kt keyType, key, value []byte) {
 	b.grow(n)
 	index := batchIndex{keyType: kt}
 	o := len(b.data)
+	// 这个还是个值拷贝？
 	data := b.data[:o+n]
 	// 存放类型
 	data[o] = byte(kt)
 	o++
+	// 把key的长度放到data中
 	o += binary.PutUvarint(data[o:], uint64(len(key)))
 	index.keyPos = o
 	index.keyLen = len(key)
+	// key放到data中
 	o += copy(data[o:], key)
-	// TODO 2022.07.06
 	if kt == keyTypeVal {
+		// value长度放到data中
 		o += binary.PutUvarint(data[o:], uint64(len(value)))
 		index.valuePos = o
 		index.valueLen = len(value)
+		// value放到data中
 		o += copy(data[o:], value)
 	}
 	b.data = data[:o]
@@ -160,6 +164,7 @@ func (b *Batch) Replay(r BatchReplay) error {
 	return nil
 }
 
+// TODO 2022.07.08
 // Len returns number of records in the batch.
 func (b *Batch) Len() int {
 	return len(b.index)
