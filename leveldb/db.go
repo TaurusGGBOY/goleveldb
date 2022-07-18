@@ -90,6 +90,7 @@ type DB struct {
 	closer io.Closer
 }
 
+// TODO 2022.7.19
 func openDB(s *session) (*DB, error) {
 	s.log("db@open opening")
 	start := time.Now()

@@ -223,6 +223,7 @@ func (b *Batch) decode(data []byte, expectedLen int) error {
 	return nil
 }
 
+// batch的put
 func (b *Batch) putMem(seq uint64, mdb *memdb.DB) error {
 	var ik []byte
 	for i, index := range b.index {

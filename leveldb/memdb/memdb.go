@@ -300,6 +300,7 @@ func (p *DB) Put(key []byte, value []byte) error {
 	defer p.mu.Unlock()
 
 	// 找到大于等于key的结点，如果正好是
+	// 找到的节点从上往下
 	if node, exact := p.findGE(key, true); exact {
 		// TODO 这样的话 原来的kvData存kv的地方不能释放 这不会爆内存？
 		kvOffset := len(p.kvData)

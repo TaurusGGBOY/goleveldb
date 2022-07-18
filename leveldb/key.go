@@ -76,6 +76,7 @@ func init() {
 
 type internalKey []byte
 
+// 重要
 func makeInternalKey(dst, ukey []byte, seq uint64, kt keyType) internalKey {
 	if seq > keyMaxSeq {
 		panic("leveldb: invalid sequence number")
@@ -91,6 +92,7 @@ func makeInternalKey(dst, ukey []byte, seq uint64, kt keyType) internalKey {
 	// 把序号放进去 左边序号 右边类型
 	binary.LittleEndian.PutUint64(dst[len(ukey):], (seq<<8)|uint64(kt))
 	// 这些构造函数咋回事？不是构造函数 是强制类型转换
+	// ukey+seq+type
 	return internalKey(dst)
 }
 

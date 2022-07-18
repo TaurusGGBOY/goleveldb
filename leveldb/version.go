@@ -410,6 +410,8 @@ func (v *version) computeCompaction() {
 			// file size is small (perhaps because of a small write-buffer
 			// setting, or very high compression ratios, or lots of
 			// overwrites/deletions).
+			// 写buffer更大 不要做太多的level-0压缩
+			// 默认是4
 			score = float64(len(tables)) / float64(v.s.o.GetCompactionL0Trigger())
 		} else {
 			score = float64(size) / float64(v.s.o.GetCompactionTotalSize(level))
@@ -432,6 +434,7 @@ func (v *version) computeCompaction() {
 	v.s.logf("version@stat F·%v S·%s%v Sc·%v", statFiles, shortenb(int(statTotSize)), statSizes, statScore)
 }
 
+// 两个可能性会压缩一个是
 func (v *version) needCompaction() bool {
 	return v.cScore >= 1 || atomic.LoadPointer(&v.cSeek) != nil
 }
