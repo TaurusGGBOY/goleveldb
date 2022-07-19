@@ -97,6 +97,7 @@ func (v *version) walkOverlapping(aux tFiles, ikey internalKey, f func(level int
 	ukey := ikey.ukey()
 
 	// Aux level.
+	// 这也不是第0层啊？
 	if aux != nil {
 		// t是这层的tFile链表
 		for _, t := range aux {
@@ -125,7 +126,7 @@ func (v *version) walkOverlapping(aux tFiles, ikey internalKey, f func(level int
 		if level == 0 {
 			// Level-0 files may overlap each other. Find all files that
 			// overlap ukey.
-			// 第0层遍历所有的表
+			// 第0层遍历所有的表 因为会有重叠
 			for _, t := range tables {
 				if t.overlaps(v.s.icmp, ukey, ukey) {
 					if !f(level, t) {
@@ -136,6 +137,8 @@ func (v *version) walkOverlapping(aux tFiles, ikey internalKey, f func(level int
 		} else {
 			// 否则是可以二分搜索所有的table的
 			// TODO 层和层之间的key有关系吗？我记得没有啊……
+			// TODO 终于能看懂了 2022.7.19
+			// 找到最小的 可能有key的表
 			if i := tables.searchMax(v.s.icmp, ikey); i < len(tables) {
 				t := tables[i]
 				if v.s.icmp.uCompare(ukey, t.imin.ukey()) >= 0 {

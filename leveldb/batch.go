@@ -164,7 +164,6 @@ func (b *Batch) Replay(r BatchReplay) error {
 	return nil
 }
 
-// TODO 2022.07.08
 // Len returns number of records in the batch.
 func (b *Batch) Len() int {
 	return len(b.index)
@@ -172,6 +171,7 @@ func (b *Batch) Len() int {
 
 // Reset resets the batch.
 func (b *Batch) Reset() {
+	// 清空就是截断之后等待gc 还行
 	b.data = b.data[:0]
 	b.index = b.index[:0]
 	b.internalLen = 0

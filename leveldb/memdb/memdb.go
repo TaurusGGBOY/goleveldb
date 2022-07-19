@@ -419,6 +419,7 @@ func (p *DB) Find(key []byte) (rkey, value []byte, err error) {
 	// 加锁 这个效率……
 	// 哦 读锁
 	p.mu.RLock()
+	// 找到的只是大于等于的
 	if node, _ := p.findGE(key, false); node != 0 {
 		n := p.nodeData[node]
 		m := n + p.nodeData[node+nKey]

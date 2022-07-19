@@ -741,7 +741,7 @@ func (db *DB) recoverJournalRO() error {
 }
 
 func memGet(mdb *memdb.DB, ikey internalKey, icmp *iComparer) (ok bool, mv []byte, err error) {
-	// 先找key
+	// 先找key 只是大于等于的
 	mk, mv, err := mdb.Find(ikey)
 	if err == nil {
 		// 找到了之后先解析出key 以及类型
@@ -753,11 +753,13 @@ func memGet(mdb *memdb.DB, ikey internalKey, icmp *iComparer) (ok bool, mv []byt
 		// 还有可能不一样？迷
 		if icmp.uCompare(ukey, ikey.ukey()) == 0 {
 			if kt == keyTypeDel {
+				// 如果删除了 就返回value 为空
 				return true, nil, ErrNotFound
 			}
 			return true, mv, nil
 
 		}
+		// 所以 可能不一样 是大于等于
 	} else if err != ErrNotFound {
 		return true, nil, err
 	}
@@ -768,21 +770,21 @@ func (db *DB) get(auxm *memdb.DB, auxt tFiles, key []byte, seq uint64, ro *opt.R
 	// ???一开始不传buf进去 玩我是吧
 	ikey := makeInternalKey(nil, key, seq, keyTypeSeek)
 
-	// 如果知道在哪 就先从memtable 里面拿
+	// 先从memtable 里面拿
 	if auxm != nil {
 		if ok, mv, me := memGet(auxm, ikey, db.s.icmp); ok {
 			return append([]byte{}, mv...), me
 		}
 	}
 
-	// 如果不知道在哪个就全拿出来 遍历……
+	//  遍历mem池子……
 	em, fm := db.getMems()
 	// TODO 这个用法看一下
 	for _, m := range [...]*memDB{em, fm} {
 		if m == nil {
 			continue
 		}
-		// TODO 为何每次都要decreft 因为才increase了一次
+		// 前面获取的时候引用计数增加了 现在用不上了 可以去掉引用计数
 		defer m.decref()
 
 		if ok, mv, me := memGet(m.DB, ikey, db.s.icmp); ok {
@@ -790,7 +792,7 @@ func (db *DB) get(auxm *memdb.DB, auxt tFiles, key []byte, seq uint64, ro *opt.R
 		}
 	}
 
-	// memtable找不到了……
+	// memtable找不到了……从version里面拿
 	v := db.s.version()
 	// 传文件 key 读选项
 	value, cSched, err := v.get(auxt, ikey, ro, false)
