@@ -797,6 +797,7 @@ func (db *DB) get(auxm *memdb.DB, auxt tFiles, key []byte, seq uint64, ro *opt.R
 	// 传文件 key 读选项
 	value, cSched, err := v.get(auxt, ikey, ro, false)
 	v.release()
+	// get也会触发压缩
 	if cSched {
 		// Trigger table compaction.
 		db.compTrigger(db.tcompCmdC)
@@ -811,6 +812,7 @@ func nilIfNotFound(err error) error {
 	return err
 }
 
+// has就不需要返回value了
 func (db *DB) has(auxm *memdb.DB, auxt tFiles, key []byte, seq uint64, ro *opt.ReadOptions) (ret bool, err error) {
 	ikey := makeInternalKey(nil, key, seq, keyTypeSeek)
 
@@ -924,6 +926,7 @@ func (db *DB) GetSnapshot() (*Snapshot, error) {
 	return db.newSnapshot(), nil
 }
 
+// TODO 2022.07.20 这个地方有意思 再看看
 // GetProperty returns value of the given property name.
 //
 // Property names:

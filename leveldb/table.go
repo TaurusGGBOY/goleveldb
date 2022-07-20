@@ -75,7 +75,8 @@ func newTableFile(fd storage.FileDesc, size int64, imin, imax internalKey) *tFil
 	// of 1MB of data.  I.e., one seek costs approximately the
 	// same as the compaction of 40KB of data.  We are a little
 	// conservative and allow approximately one seek for every 16KB
-	// of data before triggering a compaction.
+	// of data before triggering a compaction.1`
+	// 大概是每100次就要进行一次compaction
 	f.seekLeft = int32(size / 16384)
 	if f.seekLeft < 100 {
 		f.seekLeft = 100
@@ -463,6 +464,7 @@ func (t *tOps) findKey(f *tFile, key []byte, ro *opt.ReadOptions) (rkey []byte, 
 		return nil, err
 	}
 	defer ch.Release()
+	// tFile 就是 sst文件
 	return ch.Value().(*table.Reader).FindKey(key, true, ro)
 }
 

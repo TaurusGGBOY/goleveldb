@@ -31,6 +31,7 @@ func (db *DB) acquireSnapshot() *snapshotElement {
 	defer db.snapsMu.Unlock()
 
 	// TODO 这个序列号是什么序列号
+	// 拿一个版本号
 	seq := db.getSeq()
 
 	// TODO 这还是个循环链表？

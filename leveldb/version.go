@@ -137,8 +137,7 @@ func (v *version) walkOverlapping(aux tFiles, ikey internalKey, f func(level int
 		} else {
 			// 否则是可以二分搜索所有的table的
 			// TODO 层和层之间的key有关系吗？我记得没有啊……
-			// TODO 终于能看懂了 2022.7.19
-			// 找到最小的 可能有key的表
+			// 找到一个table使得ikey小于table右端点的 可能有key的表
 			if i := tables.searchMax(v.s.icmp, ikey); i < len(tables) {
 				t := tables[i]
 				if v.s.icmp.uCompare(ukey, t.imin.ukey()) >= 0 {
@@ -252,20 +251,19 @@ func (v *version) get(aux tFiles, ikey internalKey, ro *opt.ReadOptions, noValue
 		// 这是函数lf
 	}, func(level int) bool {
 		// 如果zffound==false 就直接返回true
-		if zfound {
-			switch zkt {
-			case keyTypeVal:
-				value = zval
-				err = nil
-				// TODO 删除类型是什么
-			case keyTypeDel:
-			default:
-				panic("leveldb: invalid internalKey type")
-			}
+		if !zfound {
 			return false
 		}
-
-		return true
+		switch zkt {
+		case keyTypeVal:
+			value = zval
+			err = nil
+			// TODO 删除类型是什么
+		case keyTypeDel:
+		default:
+			panic("leveldb: invalid internalKey type")
+		}
+		return false
 	})
 
 	// TODO seek到底是什么 如果要找 并且
