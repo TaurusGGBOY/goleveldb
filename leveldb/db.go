@@ -930,24 +930,34 @@ func (db *DB) GetSnapshot() (*Snapshot, error) {
 // GetProperty returns value of the given property name.
 //
 // Property names:
+// 某个level的sst数量
 //	leveldb.num-files-at-level{n}
 //		Returns the number of files at level 'n'.
+// 统计
 //	leveldb.stats
 //		Returns statistics of the underlying DB.
+// io统计
 //	leveldb.iostats
 //		Returns statistics of effective disk read and write.
+// 写延迟
 //	leveldb.writedelay
 //		Returns cumulative write delay caused by compaction.
+// 返回sstable
 //	leveldb.sstables
 //		Returns sstables list for each level.
+// 返回block池子
 //	leveldb.blockpool
 //		Returns block pool stats.
+// 返回缓存的块
 //	leveldb.cachedblock
 //		Returns size of cached block.
+// 返回打开的tables
 //	leveldb.openedtables
 //		Returns number of opened tables.
+// 返回存活的
 //	leveldb.alivesnaps
 //		Returns number of alive snapshots.
+// 存活的迭代器
 //	leveldb.aliveiters
 //		Returns number of alive iterators.
 func (db *DB) GetProperty(name string) (value string, err error) {
@@ -1067,6 +1077,7 @@ type DBStats struct {
 }
 
 // Stats populates s with database statistics.
+// 状态也不看了
 func (db *DB) Stats(s *DBStats) error {
 	err := db.ok()
 	if err != nil {
@@ -1120,6 +1131,7 @@ func (db *DB) Stats(s *DBStats) error {
 // data compresses by a factor of ten, the returned sizes will be one-tenth
 // the size of the corresponding user data size.
 // The results may not include the sizes of recently written data.
+// 这个也不看了
 func (db *DB) SizeOf(ranges []util.Range) (Sizes, error) {
 	if err := db.ok(); err != nil {
 		return nil, err
@@ -1156,6 +1168,7 @@ func (db *DB) SizeOf(ranges []util.Range) (Sizes, error) {
 // It is not safe to close a DB until all outstanding iterators are released.
 // It is valid to call Close multiple times. Other methods should not be
 // called after the DB has been closed.
+// 关闭就不看了
 func (db *DB) Close() error {
 	if !db.setClosed() {
 		return ErrClosed

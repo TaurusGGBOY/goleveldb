@@ -16,10 +16,12 @@ import (
 	"github.com/syndtr/goleveldb/leveldb/storage"
 )
 
+// 可以压缩来了
 var (
 	errCompactionTransactExiting = errors.New("leveldb: compaction transact exiting")
 )
 
+// 状态这部分跳过
 type cStat struct {
 	duration time.Duration
 	read     int64
@@ -93,6 +95,7 @@ noerr:
 			switch {
 			case err == nil:
 			case err == ErrReadOnly, errors.IsCorrupted(err):
+				// goto牛的 不敢用
 				goto hasperr
 			default:
 				goto haserr
@@ -150,6 +153,7 @@ type compactionTransactInterface interface {
 
 func (db *DB) compactionTransact(name string, t compactionTransactInterface) {
 	defer func() {
+		// 捕获panic
 		if x := recover(); x != nil {
 			if x == errCompactionTransactExiting {
 				if err := t.revert(); err != nil {
@@ -160,6 +164,7 @@ func (db *DB) compactionTransact(name string, t compactionTransactInterface) {
 		}
 	}()
 
+	// TODO 后退的意思是
 	const (
 		backoffMin = 1 * time.Second
 		backoffMax = 8 * time.Second
@@ -183,6 +188,7 @@ func (db *DB) compactionTransact(name string, t compactionTransactInterface) {
 
 		// Execute.
 		cnt := compactionTransactCounter(0)
+		// 在这里运行了压缩
 		err := t.run(&cnt)
 		if err != nil {
 			db.logf("%s error I·%d %q", name, cnt, err)
@@ -265,6 +271,7 @@ func (db *DB) compactionCommit(name string, rec *sessionRecord) {
 	}, nil)
 }
 
+// 可以 先看mem的压缩
 func (db *DB) memCompaction() {
 	mdb := db.getFrozenMem()
 	if mdb == nil {
@@ -346,6 +353,7 @@ func (db *DB) memCompaction() {
 	}
 
 	// Trigger table compaction.
+	// memcompaction回触发table的 这个是sst吗？
 	db.compTrigger(db.tcompCmdC)
 }
 
@@ -394,11 +402,11 @@ func (b *tableCompactionBuilder) appendKV(key, value []byte) error {
 			return err
 		}
 	}
-
 	// Write key/value into table.
 	return b.tw.append(key, value)
 }
 
+// 当write的buf已经大于一个table的size的时候就可以刷盘了
 func (b *tableCompactionBuilder) needFlush() bool {
 	return b.tw.tw.BytesLen() >= b.tableSize
 }
@@ -408,6 +416,7 @@ func (b *tableCompactionBuilder) flush() error {
 	if err != nil {
 		return err
 	}
+	// 这也只是加入到一个buf中 并没有真落盘
 	b.rec.addTableFile(b.c.sourceLevel+1, t)
 	b.stat1.write += t.size
 	b.s.logf("table@build created L%d@%d N·%d S·%s %q:%q", b.c.sourceLevel+1, t.fd.Num, b.tw.tw.EntriesLen(), shortenb(int(t.size)), t.imin, t.imax)
@@ -422,6 +431,7 @@ func (b *tableCompactionBuilder) cleanup() {
 	}
 }
 
+// 确实跑mem压缩的时候也会到run这里
 func (b *tableCompactionBuilder) run(cnt *compactionTransactCounter) error {
 	snapResumed := b.snapIter > 0
 	hasLastUkey := b.snapHasLastUkey // The key might has zero length, so this is necessary.
@@ -437,6 +447,7 @@ func (b *tableCompactionBuilder) run(cnt *compactionTransactCounter) error {
 	b.stat1.startTimer()
 	defer b.stat1.stopTimer()
 
+	// TODO 2022.7.21 秒啊 懂了懂了懂了
 	iter := b.c.newIterator()
 	defer iter.Release()
 	for i := 0; iter.Next(); i++ {
@@ -488,6 +499,7 @@ func (b *tableCompactionBuilder) run(cnt *compactionTransactCounter) error {
 			case lastSeq <= b.minSeq:
 				// Dropped because newer entry for same user key exist
 				fallthrough // (A)
+				// 直接跳到下一个语句
 			case kt == keyTypeDel && seq <= b.minSeq && b.c.baseLevelForKey(lastUkey):
 				// For this user key:
 				// (1) there is no data in higher levels

@@ -194,6 +194,7 @@ func (db *DB) hasFrozenMem() bool {
 }
 
 // Get frozen memdb.
+// frozenmem什么地方赋值的 是在newMem的时候（？）
 func (db *DB) getFrozenMem() *memDB {
 	db.memMu.RLock()
 	defer db.memMu.RUnlock()

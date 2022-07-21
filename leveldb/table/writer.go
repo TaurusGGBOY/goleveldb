@@ -40,6 +40,7 @@ type blockWriter struct {
 	scratch         []byte
 }
 
+// 这里只是写进buf没有真正刷盘
 func (w *blockWriter) append(key, value []byte) {
 	nShared := 0
 	if w.nEntries%w.restartInterval == 0 {

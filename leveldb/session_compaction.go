@@ -251,8 +251,11 @@ func (c *compaction) trivial() bool {
 }
 
 func (c *compaction) baseLevelForKey(ukey []byte) bool {
+	// 从上往下遍历
 	for level := c.sourceLevel + 2; level < len(c.v.levels); level++ {
+		// 拿到这一层的tables
 		tables := c.v.levels[level]
+		// 一个个table遍历 找有没有领先的如果有就返回
 		for c.tPtrs[level] < len(tables) {
 			t := tables[c.tPtrs[level]]
 			if c.s.icmp.uCompare(ukey, t.imax.ukey()) <= 0 {
@@ -266,6 +269,7 @@ func (c *compaction) baseLevelForKey(ukey []byte) bool {
 			c.tPtrs[level]++
 		}
 	}
+	// 一定会有吗？感觉……
 	return true
 }
 
@@ -293,6 +297,7 @@ func (c *compaction) shouldStopBefore(ikey internalKey) bool {
 func (c *compaction) newIterator() iterator.Iterator {
 	// Creates iterator slice.
 	icap := len(c.levels)
+	// 如果是0层 特殊处理cap
 	if c.sourceLevel == 0 {
 		// Special case for level-0.
 		icap = len(c.levels[0]) + 1
@@ -315,6 +320,7 @@ func (c *compaction) newIterator() iterator.Iterator {
 		}
 
 		// Level-0 is not sorted and may overlaps each other.
+		// 因为第0层可能重叠 所以不是
 		if c.sourceLevel+i == 0 {
 			for _, t := range tables {
 				its = append(its, c.s.tops.newIterator(t, nil, ro))
