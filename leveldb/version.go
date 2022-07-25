@@ -487,6 +487,7 @@ func (p *versionStaging) commit(r *sessionRecord) {
 	}
 }
 
+// 这个这么复杂……
 func (p *versionStaging) finish(trivial bool) *version {
 	// Build new version.
 	nv := newVersion(p.base.s)
@@ -495,93 +496,104 @@ func (p *versionStaging) finish(trivial bool) *version {
 		numLevel = len(p.base.levels)
 	}
 	nv.levels = make([]tFiles, numLevel)
+
+	// 遍历所有level
 	for level := 0; level < numLevel; level++ {
 		var baseTabels tFiles
 		if level < len(p.base.levels) {
 			baseTabels = p.base.levels[level]
 		}
 
-		if level < len(p.levels) {
-			scratch := p.levels[level]
-
-			// Short circuit if there is no change at all.
-			if len(scratch.added) == 0 && len(scratch.deleted) == 0 {
-				nv.levels[level] = baseTabels
-				continue
-			}
-
-			var nt tFiles
-			// Prealloc list if possible.
-			if n := len(baseTabels) + len(scratch.added) - len(scratch.deleted); n > 0 {
-				nt = make(tFiles, 0, n)
-			}
-
-			// Base tables.
-			for _, t := range baseTabels {
-				if _, ok := scratch.deleted[t.fd.Num]; ok {
-					continue
-				}
-				if _, ok := scratch.added[t.fd.Num]; ok {
-					continue
-				}
-				nt = append(nt, t)
-			}
-
-			// Avoid resort if only files in this level are deleted
-			if len(scratch.added) == 0 {
-				nv.levels[level] = nt
-				continue
-			}
-
-			// For normal table compaction, one compaction will only involve two levels
-			// of files. And the new files generated after merging the source level and
-			// source+1 level related files can be inserted as a whole into source+1 level
-			// without any overlap with the other source+1 files.
-			//
-			// When the amount of data maintained by leveldb is large, the number of files
-			// per level will be very large. While qsort is very inefficient for sorting
-			// already ordered arrays. Therefore, for the normal table compaction, we use
-			// binary search here to find the insert index to insert a batch of new added
-			// files directly instead of using qsort.
-			if trivial && len(scratch.added) > 0 {
-				added := make(tFiles, 0, len(scratch.added))
-				for _, r := range scratch.added {
-					added = append(added, tableFileFromRecord(r))
-				}
-				if level == 0 {
-					added.sortByNum()
-					index := nt.searchNumLess(added[len(added)-1].fd.Num)
-					nt = append(nt[:index], append(added, nt[index:]...)...)
-				} else {
-					added.sortByKey(p.base.s.icmp)
-					_, amax := added.getRange(p.base.s.icmp)
-					index := nt.searchMin(p.base.s.icmp, amax)
-					nt = append(nt[:index], append(added, nt[index:]...)...)
-				}
-				nv.levels[level] = nt
-				continue
-			}
-
-			// New tables.
-			for _, r := range scratch.added {
-				nt = append(nt, tableFileFromRecord(r))
-			}
-
-			if len(nt) != 0 {
-				// Sort tables.
-				if level == 0 {
-					nt.sortByNum()
-				} else {
-					nt.sortByKey(p.base.s.icmp)
-				}
-
-				nv.levels[level] = nt
-			}
-		} else {
+		// 这个运行时会变？
+		if level > len(p.levels) {
 			nv.levels[level] = baseTabels
+			continue
+		}
+
+		scratch := p.levels[level]
+
+		// 如果没有啥搞的就直接继续了
+		// Short circuit if there is no change at all.
+		if len(scratch.added) == 0 && len(scratch.deleted) == 0 {
+			// 但是其实什么都没有操作啊？所以这个意义在哪？不操作直接continue不行吗
+			// 主要还是 p.base.levels和p.levels的区别
+			nv.levels[level] = baseTabels
+			continue
+		}
+
+		var nt tFiles
+		// Prealloc list if possible.
+		if n := len(baseTabels) + len(scratch.added) - len(scratch.deleted); n > 0 {
+			nt = make(tFiles, 0, n)
+		}
+
+		// Base tables.
+		for _, t := range baseTabels {
+			if _, ok := scratch.deleted[t.fd.Num]; ok {
+				continue
+			}
+			if _, ok := scratch.added[t.fd.Num]; ok {
+				continue
+			}
+			// 不删除和不添加的表就保存一下
+			nt = append(nt, t)
+		}
+
+		// 如果没有要添加了 那么已经删完了 可以返回了
+		// Avoid resort if only files in this level are deleted
+		if len(scratch.added) == 0 {
+			nv.levels[level] = nt
+			continue
+		}
+
+		// For normal table compaction, one compaction will only involve two levels
+		// of files. And the new files generated after merging the source level and
+		// source+1 level related files can be inserted as a whole into source+1 level
+		// without any overlap with the other source+1 files.
+		//
+		// When the amount of data maintained by leveldb is large, the number of files
+		// per level will be very large. While qsort is very inefficient for sorting
+		// already ordered arrays. Therefore, for the normal table compaction, we use
+		// binary search here to find the insert index to insert a batch of new added
+		// files directly instead of using qsort.
+		// TODO 2022.7.25 这里才是compact的实际位置？
+		if trivial && len(scratch.added) > 0 {
+			added := make(tFiles, 0, len(scratch.added))
+			for _, r := range scratch.added {
+				added = append(added, tableFileFromRecord(r))
+			}
+			if level == 0 {
+				added.sortByNum()
+				index := nt.searchNumLess(added[len(added)-1].fd.Num)
+				nt = append(nt[:index], append(added, nt[index:]...)...)
+			} else {
+				added.sortByKey(p.base.s.icmp)
+				_, amax := added.getRange(p.base.s.icmp)
+				index := nt.searchMin(p.base.s.icmp, amax)
+				nt = append(nt[:index], append(added, nt[index:]...)...)
+			}
+			nv.levels[level] = nt
+			continue
+		}
+
+		// New tables.
+		for _, r := range scratch.added {
+			nt = append(nt, tableFileFromRecord(r))
+		}
+
+		if len(nt) != 0 {
+			// Sort tables.
+			if level == 0 {
+				nt.sortByNum()
+			} else {
+				nt.sortByKey(p.base.s.icmp)
+			}
+
+			nv.levels[level] = nt
 		}
 	}
 
+	// 有些level是空的话 可以直接截断了 没啥用
 	// Trim levels.
 	n := len(nv.levels)
 	for ; n > 0 && nv.levels[n-1] == nil; n-- {

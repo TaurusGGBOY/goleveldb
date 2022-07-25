@@ -447,7 +447,6 @@ func (b *tableCompactionBuilder) run(cnt *compactionTransactCounter) error {
 	b.stat1.startTimer()
 	defer b.stat1.stopTimer()
 
-	// TODO 2022.7.21 秒啊 懂了懂了懂了
 	iter := b.c.newIterator()
 	defer iter.Release()
 	for i := 0; iter.Next(); i++ {
@@ -474,6 +473,7 @@ func (b *tableCompactionBuilder) run(cnt *compactionTransactCounter) error {
 			if !hasLastUkey || b.s.icmp.uCompare(lastUkey, ukey) != 0 {
 				// First occurrence of this user key.
 
+				// TODO 旋转什么意思
 				// Only rotate tables if ukey doesn't hop across.
 				if b.tw != nil && (shouldStop || b.needFlush()) {
 					if err := b.flush(); err != nil {
@@ -515,6 +515,7 @@ func (b *tableCompactionBuilder) run(cnt *compactionTransactCounter) error {
 				lastSeq = seq
 			}
 		} else {
+			// TODO 这个严格模式怎么说
 			if b.strict {
 				return kerr
 			}
@@ -558,9 +559,11 @@ func (db *DB) tableCompaction(c *compaction, noTrivial bool) {
 	rec := &sessionRecord{}
 	rec.addCompPtr(c.sourceLevel, c.imax)
 
+	// 特判 如果稀疏的话 直接删除表 然后加到下一层 就完事了
 	if !noTrivial && c.trivial() {
 		t := c.levels[0][0]
 		db.logf("table@move L%d@%d -> L%d", c.sourceLevel, t.fd.Num, c.sourceLevel+1)
+		// 懒删除 这只是记录一下
 		rec.delTable(c.sourceLevel, t.fd.Num)
 		rec.addTableFile(c.sourceLevel+1, t)
 		db.compactionCommit("table-move", rec)
@@ -589,6 +592,7 @@ func (db *DB) tableCompaction(c *compaction, noTrivial bool) {
 		strict:    db.s.o.GetStrict(opt.StrictCompaction),
 		tableSize: db.s.o.GetCompactionTableSize(c.sourceLevel + 1),
 	}
+	// 如果走revert的话 感觉只有删除文件 没有添加
 	db.compactionTransact("table@build", b)
 
 	// Commit.

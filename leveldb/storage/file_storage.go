@@ -525,6 +525,7 @@ func (fs *fileStorage) Remove(fd FileDesc) error {
 	err := os.Remove(filepath.Join(fs.path, fsGenName(fd)))
 	if err != nil {
 		if fsHasOldName(fd) && os.IsNotExist(err) {
+			// 说删啊 这就真的删了
 			if e1 := os.Remove(filepath.Join(fs.path, fsGenOldName(fd))); !os.IsNotExist(e1) {
 				fs.log(fmt.Sprintf("remove %s: %v (old name)", fd, err))
 				err = e1
