@@ -37,6 +37,8 @@ func (db *DB) writeJournal(batches []*Batch, seq uint64, sync bool) error {
 
 func (db *DB) rotateMem(n int, wait bool) (mem *memDB, err error) {
 	retryLimit := 3
+	// 只能retry三次
+	// TODO 2022.07.26
 retry:
 	// Wait for pending memdb compaction.
 	err = db.compTriggerWait(db.mcompCmdC)
@@ -46,6 +48,7 @@ retry:
 	retryLimit--
 
 	// Create new memdb and journal.
+	// 创建新的mem
 	mem, err = db.newMem(n)
 	if err != nil {
 		if err == errHasFrozenMem {

@@ -122,6 +122,7 @@ func (db *DB) mpoolDrain() {
 
 // Create new memdb and froze the old one; need external synchronization.
 // newMem only called synchronously by the writer.
+// 创建新的时候会冻结旧的
 func (db *DB) newMem(n int) (mem *memDB, err error) {
 	fd := storage.FileDesc{Type: storage.TypeJournal, Num: db.s.allocFileNum()}
 	w, err := db.s.stor.Create(fd)
@@ -133,6 +134,7 @@ func (db *DB) newMem(n int) (mem *memDB, err error) {
 	db.memMu.Lock()
 	defer db.memMu.Unlock()
 
+	// frozenMem1如果已经有了 就报错
 	if db.frozenMem != nil {
 		return nil, errHasFrozenMem
 	}

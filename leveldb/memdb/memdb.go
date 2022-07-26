@@ -295,6 +295,7 @@ func (p *DB) findLast() int {
 // for that key; a DB is not a multi-map.
 //
 // It is safe to modify the contents of the arguments after Put returns.
+// put的时候先写入memtable所以嘛 不用管compaction的事儿
 func (p *DB) Put(key []byte, value []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()

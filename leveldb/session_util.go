@@ -475,6 +475,7 @@ func (s *session) flushManifest(rec *sessionRecord) (err error) {
 	if err != nil {
 		return
 	}
+	// 这个刷盘 但并没有完全刷
 	err = s.manifest.Flush()
 	if err != nil {
 		return

@@ -413,8 +413,10 @@ func (v *version) computeCompaction() {
 			// overwrites/deletions).
 			// 写buffer更大 不要做太多的level-0压缩
 			// 默认是4
+			// L0直接看有多少的table 4个就可以压缩了
 			score = float64(len(tables)) / float64(v.s.o.GetCompactionL0Trigger())
 		} else {
+			// 其他层是看具体有多大 10M就可以压缩了
 			score = float64(size) / float64(v.s.o.GetCompactionTotalSize(level))
 		}
 
@@ -546,24 +548,30 @@ func (p *versionStaging) finish(trivial bool) *version {
 			continue
 		}
 
-		// For normal table compaction, one compaction will only involve two levels
-		// of files. And the new files generated after merging the source level and
-		// source+1 level related files can be inserted as a whole into source+1 level
-		// without any overlap with the other source+1 files.
+		//For normal table compaction, one compaction will only involve two levels
+		//of files. And the new files generated after merging the source level and
+		//source+1 level related files can be inserted as a whole into source+1 level
+		//without any overlap with the other source+1 files.
 		//
-		// When the amount of data maintained by leveldb is large, the number of files
-		// per level will be very large. While qsort is very inefficient for sorting
-		// already ordered arrays. Therefore, for the normal table compaction, we use
-		// binary search here to find the insert index to insert a batch of new added
-		// files directly instead of using qsort.
-		// TODO 2022.7.25 这里才是compact的实际位置？
+		//When the amount of data maintained by leveldb is large, the number of files
+		//per level will be very large. While qsort is very inefficient for sorting
+		//already ordered arrays. Therefore, for the normal table compaction, we use
+		//binary search here to find the insert index to insert a batch of new added
+		//files directly instead of using qsort.
+		// 但是 如果琐碎的话 不就只插入一个吗？
+		// 如果只插入一个 直接插入 否则就重新快排 就这么句话
 		if trivial && len(scratch.added) > 0 {
 			added := make(tFiles, 0, len(scratch.added))
 			for _, r := range scratch.added {
+				// 只是存了元信息
 				added = append(added, tableFileFromRecord(r))
 			}
 			if level == 0 {
+				// 这个是降序
 				added.sortByNum()
+				// nt是basic的added已经是降序的 最后一个就是最小的 然后找比added中最小的
+				// 但是nt是有序的吗就在用二分……
+				// TODO 这个后半部分不会冲突吗？没有相同的NUM？
 				index := nt.searchNumLess(added[len(added)-1].fd.Num)
 				nt = append(nt[:index], append(added, nt[index:]...)...)
 			} else {
@@ -581,16 +589,18 @@ func (p *versionStaging) finish(trivial bool) *version {
 			nt = append(nt, tableFileFromRecord(r))
 		}
 
-		if len(nt) != 0 {
-			// Sort tables.
-			if level == 0 {
-				nt.sortByNum()
-			} else {
-				nt.sortByKey(p.base.s.icmp)
-			}
-
-			nv.levels[level] = nt
+		if len(nt) == 0 {
+			continue
 		}
+
+		// Sort tables.
+		if level == 0 {
+			nt.sortByNum()
+		} else {
+			nt.sortByKey(p.base.s.icmp)
+		}
+
+		nv.levels[level] = nt
 	}
 
 	// 有些level是空的话 可以直接截断了 没啥用
@@ -601,6 +611,7 @@ func (p *versionStaging) finish(trivial bool) *version {
 	nv.levels = nv.levels[:n]
 
 	// Compute compaction score for new version.
+	// TODO 这个就可能造成写放大？
 	nv.computeCompaction()
 
 	return nv

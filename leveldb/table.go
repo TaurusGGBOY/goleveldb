@@ -86,6 +86,7 @@ func newTableFile(fd storage.FileDesc, size int64, imin, imax internalKey) *tFil
 }
 
 func tableFileFromRecord(r atRecord) *tFile {
+	// 只是元信息
 	return newTableFile(storage.FileDesc{Type: storage.TypeTable, Num: r.num}, r.size, r.imin, r.imax)
 }
 
@@ -400,6 +401,7 @@ func (t *tOps) createFrom(src iterator.Iterator) (f *tFile, n int, err error) {
 		}
 	}()
 
+	// 感觉就是第0层直接从头到尾
 	for src.Next() {
 		err = w.append(src.Key(), src.Value())
 		if err != nil {
@@ -493,6 +495,7 @@ func (t *tOps) newIterator(f *tFile, slice *util.Range, ro *opt.ReadOptions) ite
 // no one use the the table.
 func (t *tOps) remove(fd storage.FileDesc) {
 	t.cache.Delete(0, uint64(fd.Num), func() {
+		// 直接删fd
 		if err := t.s.stor.Remove(fd); err != nil {
 			t.s.logf("table@remove removing @%d %q", fd.Num, err)
 		} else {

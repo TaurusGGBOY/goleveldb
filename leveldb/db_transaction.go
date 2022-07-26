@@ -8,12 +8,11 @@ package leveldb
 
 import (
 	"errors"
-	"sync"
-	"time"
-
 	"github.com/syndtr/goleveldb/leveldb/iterator"
 	"github.com/syndtr/goleveldb/leveldb/opt"
 	"github.com/syndtr/goleveldb/leveldb/util"
+	"sync"
+	"time"
 )
 
 var errTransactionDone = errors.New("leveldb: transaction already closed")
@@ -37,6 +36,7 @@ type Transaction struct {
 // The returned slice is its own copy, it is safe to modify the contents
 // of the returned slice.
 // It is safe to modify the contents of the argument after Get returns.
+// 读就是加个读锁
 func (tr *Transaction) Get(key []byte, ro *opt.ReadOptions) ([]byte, error) {
 	tr.lk.RLock()
 	defer tr.lk.RUnlock()
@@ -89,29 +89,33 @@ func (tr *Transaction) NewIterator(slice *util.Range, ro *opt.ReadOptions) itera
 	return tr.db.newIterator(tr.mem, tr.tables, tr.seq, slice, ro)
 }
 
+// 重要 memtable刷盘
 func (tr *Transaction) flush() error {
 	// Flush memdb.
-	if tr.mem.Len() != 0 {
-		tr.stats.startTimer()
-		iter := tr.mem.NewIterator(nil)
-		t, n, err := tr.db.s.tops.createFrom(iter)
-		iter.Release()
-		tr.stats.stopTimer()
-		if err != nil {
-			return err
-		}
-		if tr.mem.getref() == 1 {
-			tr.mem.Reset()
-		} else {
-			tr.mem.decref()
-			tr.mem = tr.db.mpoolGet(0)
-			tr.mem.incref()
-		}
-		tr.tables = append(tr.tables, t)
-		tr.rec.addTableFile(0, t)
-		tr.stats.write += t.size
-		tr.db.logf("transaction@flush created L0@%d N·%d S·%s %q:%q", t.fd.Num, n, shortenb(int(t.size)), t.imin, t.imax)
+	if tr.mem.Len() == 0 {
+		return nil
 	}
+	tr.stats.startTimer()
+	iter := tr.mem.NewIterator(nil)
+	// 这个就是从mem创建文件
+	t, n, err := tr.db.s.tops.createFrom(iter)
+	iter.Release()
+	tr.stats.stopTimer()
+	if err != nil {
+		return err
+	}
+	if tr.mem.getref() == 1 {
+		tr.mem.Reset()
+	} else {
+		tr.mem.decref()
+		tr.mem = tr.db.mpoolGet(0)
+		tr.mem.incref()
+	}
+	tr.tables = append(tr.tables, t)
+	// 把memtable创建的文件加入到第0层 所以是无序的
+	tr.rec.addTableFile(0, t)
+	tr.stats.write += t.size
+	tr.db.logf("transaction@flush created L0@%d N·%d S·%s %q:%q", t.fd.Num, n, shortenb(int(t.size)), t.imin, t.imax)
 	return nil
 }
 
@@ -149,6 +153,7 @@ func (tr *Transaction) Put(key, value []byte, wo *opt.WriteOptions) error {
 // writes 10 same keys, then those 10 same keys are in the transaction.
 //
 // It is safe to modify the contents of the arguments after Delete returns.
+// TODO 跟踪一下删除 到底在哪里被应用上的
 func (tr *Transaction) Delete(key []byte, wo *opt.WriteOptions) error {
 	tr.lk.Lock()
 	defer tr.lk.Unlock()
@@ -164,6 +169,7 @@ func (tr *Transaction) Delete(key []byte, wo *opt.WriteOptions) error {
 // writes 10 same keys, then those 10 same keys are in the transaction.
 //
 // It is safe to modify the contents of the arguments after Write returns.
+// 这里算是预写了
 func (tr *Transaction) Write(b *Batch, wo *opt.WriteOptions) error {
 	if b == nil || b.Len() == 0 {
 		return nil
@@ -200,6 +206,7 @@ func (tr *Transaction) Commit() error {
 	if tr.closed {
 		return errTransactionDone
 	}
+	// commit了就要刷盘哦
 	if err := tr.flush(); err != nil {
 		// Return error, lets user decide either to retry or discard
 		// transaction.
@@ -211,21 +218,23 @@ func (tr *Transaction) Commit() error {
 		tr.db.compCommitLk.Lock()
 		tr.stats.startTimer()
 		var cerr error
+		// 重试三次
 		for retry := 0; retry < 3; retry++ {
 			cerr = tr.db.s.commit(&tr.rec, false)
-			if cerr != nil {
-				tr.db.logf("transaction@commit error R·%d %q", retry, cerr)
-				select {
-				case <-time.After(time.Second):
-				case <-tr.db.closeC:
-					tr.db.logf("transaction@commit exiting")
-					tr.db.compCommitLk.Unlock()
-					return cerr
-				}
-			} else {
+			if cerr == nil {
 				// Success. Set db.seq.
 				tr.db.setSeq(tr.seq)
 				break
+			}
+			tr.db.logf("transaction@commit error R·%d %q", retry, cerr)
+			select {
+			// 只等1s
+			case <-time.After(time.Second):
+			case <-tr.db.closeC:
+				// 成功
+				tr.db.logf("transaction@commit exiting")
+				tr.db.compCommitLk.Unlock()
+				return cerr
 			}
 		}
 		tr.stats.stopTimer()
@@ -243,7 +252,8 @@ func (tr *Transaction) Commit() error {
 		tr.db.compCommitLk.Unlock()
 
 		// Additionally, wait compaction when certain threshold reached.
-		// Ignore error, returns error only if transaction can't be committed.
+		// Ignore error, eturns error only if transaction can't be committed.
+		// 事务完成之后还要等待压缩的
 		tr.db.waitCompaction()
 	}
 	// Only mark as done if transaction committed successfully.
@@ -313,6 +323,7 @@ func (db *DB) OpenTransaction() (*Transaction, error) {
 	}
 
 	// Flush current memdb.
+	// 创建新mem取代旧mem
 	if db.mem != nil && db.mem.Len() != 0 {
 		if _, err := db.rotateMem(0, true); err != nil {
 			return nil, err
