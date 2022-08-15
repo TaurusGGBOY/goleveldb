@@ -87,6 +87,7 @@ func newSession(stor storage.Storage, o *opt.Options) (s *session, err error) {
 		closeC:    make(chan struct{}),
 	}
 	s.setOptions(o)
+	// 一个session中对table的操作
 	s.tops = newTableOps(s)
 
 	s.closeW.Add(1)

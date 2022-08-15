@@ -187,6 +187,7 @@ func (s *session) refLoop() {
 		processTasks()
 
 		select {
+		// 这个是引用计数为0的时候要做的事情
 		case t := <-s.refCh:
 			if _, exist := ref[t.vid]; exist {
 				panic("duplicate reference request")
@@ -208,15 +209,20 @@ func (s *session) refLoop() {
 			}
 			deltas[d.vid] = d
 
+			// 从version的引用计数为0丢过来的任务
 		case t := <-s.relCh:
+			// 查询引用集合
 			if _, exist := referenced[t.vid]; exist {
 				for _, tt := range t.files {
 					for _, t := range tt {
+						// 给version的每一个文件的引用计数都减一
 						if addFileRef(t.fd.Num, -1) == 0 {
+							// 如果这个sst的引用计数为0的时候就删除掉这个文件的fd
 							s.tops.remove(t.fd)
 						}
 					}
 				}
+				// 删除掉引用集合
 				delete(referenced, t.vid)
 				continue
 			}

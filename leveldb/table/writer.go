@@ -286,6 +286,7 @@ func (w *Writer) BytesLen() int {
 // Close will finalize the table. Calling Append is not possible
 // after Close, but calling BlocksLen, EntriesLen and BytesLen
 // is still possible.
+// TODO 这个还挺重要的 给block里面写入东西
 func (w *Writer) Close() error {
 	defer func() {
 		if w.bpool != nil {

@@ -52,6 +52,7 @@ func newVersion(s *session) *version {
 	return nv
 }
 
+// 简单就是增加引用计数
 func (v *version) incref() {
 	if v.released {
 		panic("already released")
@@ -75,6 +76,7 @@ func (v *version) releaseNB() {
 	} else if v.ref < 0 {
 		panic("negative version ref")
 	}
+	// 引用计数为0
 	select {
 	// TODO 这个东西……会阻塞吗
 	case v.s.relCh <- &vTask{vid: v.id, files: v.levels, created: time.Now()}:
@@ -489,7 +491,14 @@ func (p *versionStaging) commit(r *sessionRecord) {
 	}
 }
 
-// 这个这么复杂……
+// 感觉有点意思
+// 就是版本他和以前的版本链和inplace的都不太一样
+// 他的版本主要是就是往后追加新的sst文件
+// 为什么呢 因为 要说leveldb的原理就是把写操作 序列化 然后通过压缩进行减小体积
+// 他的写操作是顺序写入的 如果有新追加的文件 那么这些文件就是新的写入 也就可以当做新的版本
+// 不过我有问题是 第0层确实是这样的
+// 但是在压缩之后 sst的对应关系产生了变化，这个情况的话 还要再花精力来维护sst和version之间的对应关系吗
+// 就像知乎那个问题 如果同时有10000个version 那么 为何sst和version的对应关系就很麻烦（虽然只是维护fd可能要简单一点） 但是如果有100000个文件 就可能要交互1000000000次
 func (p *versionStaging) finish(trivial bool) *version {
 	// Build new version.
 	nv := newVersion(p.base.s)
@@ -497,6 +506,10 @@ func (p *versionStaging) finish(trivial bool) *version {
 	if len(p.base.levels) > numLevel {
 		numLevel = len(p.base.levels)
 	}
+	// 这一段存的就是这整个版本的sst了
+	// 如果没有什么操作 可以直接把基本的sst靠过来就行了
+	// 如果有操作的话，就需要把增删改应用一下到基本的sst上面，然后再考过来用
+	// TODO 但是这个你部分是浅拷贝啊 就只存了一个描述符 这也能好使？
 	nv.levels = make([]tFiles, numLevel)
 
 	// 遍历所有level
@@ -512,6 +525,7 @@ func (p *versionStaging) finish(trivial bool) *version {
 			continue
 		}
 
+		// 但是需要注意的是 这一块是浅拷贝
 		scratch := p.levels[level]
 
 		// 如果没有啥搞的就直接继续了
